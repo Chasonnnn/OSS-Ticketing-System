@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Prefer repo-root `.env` so `docker compose` and `apps/api` share one config.
+    # Keep local `.env` as a fallback for service-specific overrides.
+    _REPO_ROOT = Path(__file__).resolve().parents[4]
+    model_config = SettingsConfigDict(env_file=(_REPO_ROOT / ".env", ".env"), extra="ignore")
 
     VERSION: str = "0.1.0"
     DATABASE_URL: str = "postgresql+psycopg://tickets:tickets@localhost:5432/tickets_dev"
