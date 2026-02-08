@@ -34,6 +34,7 @@ from app.models.mail import (  # noqa: F401
     OAuthCredential,
     SendIdentity,
 )
+from app.models.oauth import OAuthState  # noqa: F401
 from app.models.tickets import (  # noqa: F401
     RecipientAllowlist,
     RoutingRule,
