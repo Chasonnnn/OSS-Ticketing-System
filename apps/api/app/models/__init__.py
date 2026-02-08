@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.models.audit import AuditEvent  # noqa: F401
+from app.models.auth import AuthSession  # noqa: F401
 from app.models.base import Base as Base  # noqa: F401
 from app.models.enums import (  # noqa: F401
     BlobKind,
