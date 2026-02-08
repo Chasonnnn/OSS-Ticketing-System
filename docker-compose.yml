@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: tickets_dev
+      POSTGRES_USER: tickets
+      POSTGRES_PASSWORD: tickets
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tickets -d tickets_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio_init:
+    image: minio/mc:RELEASE.2025-01-17T21-45-05Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb -p local/tickets-blobs || true &&
+      mc anonymous set private local/tickets-blobs || true
+      "
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minioadmin
+
+volumes:
+  postgres_data:
+  minio_data:
+

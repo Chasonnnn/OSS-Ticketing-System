@@ -1,0 +1,11 @@
+{
+  "name": "oss-ticketing-system",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test --run",
+    "typecheck": "pnpm -r tsc --noEmit"
+  }
+}
+
