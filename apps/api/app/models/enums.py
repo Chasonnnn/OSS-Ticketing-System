@@ -3,38 +3,38 @@ from __future__ import annotations
 import enum
 
 
-class MembershipRole(str, enum.Enum):
+class MembershipRole(enum.StrEnum):
     admin = "admin"
     agent = "agent"
     viewer = "viewer"
 
 
-class MailboxPurpose(str, enum.Enum):
+class MailboxPurpose(enum.StrEnum):
     journal = "journal"
     user = "user"
 
 
-class MailboxProvider(str, enum.Enum):
+class MailboxProvider(enum.StrEnum):
     gmail = "gmail"
 
 
-class SendIdentityStatus(str, enum.Enum):
+class SendIdentityStatus(enum.StrEnum):
     pending = "pending"
     verified = "verified"
     failed = "failed"
 
 
-class BlobKind(str, enum.Enum):
+class BlobKind(enum.StrEnum):
     raw_eml = "raw_eml"
     attachment = "attachment"
 
 
-class MessageDirection(str, enum.Enum):
+class MessageDirection(enum.StrEnum):
     inbound = "inbound"
     outbound = "outbound"
 
 
-class OccurrenceState(str, enum.Enum):
+class OccurrenceState(enum.StrEnum):
     discovered = "discovered"
     raw_fetched = "raw_fetched"
     parsed = "parsed"
@@ -43,7 +43,7 @@ class OccurrenceState(str, enum.Enum):
     failed = "failed"
 
 
-class RoutingRecipientSource(str, enum.Enum):
+class RoutingRecipientSource(enum.StrEnum):
     workspace_header = "workspace_header"
     delivered_to = "delivered_to"
     x_original_to = "x_original_to"
@@ -51,13 +51,13 @@ class RoutingRecipientSource(str, enum.Enum):
     unknown = "unknown"
 
 
-class RoutingConfidence(str, enum.Enum):
+class RoutingConfidence(enum.StrEnum):
     high = "high"
     medium = "medium"
     low = "low"
 
 
-class TicketStatus(str, enum.Enum):
+class TicketStatus(enum.StrEnum):
     new = "new"
     open = "open"
     pending = "pending"
@@ -66,14 +66,14 @@ class TicketStatus(str, enum.Enum):
     spam = "spam"
 
 
-class TicketPriority(str, enum.Enum):
+class TicketPriority(enum.StrEnum):
     low = "low"
     normal = "normal"
     high = "high"
     urgent = "urgent"
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     queued = "queued"
     running = "running"
     succeeded = "succeeded"
@@ -81,7 +81,7 @@ class JobStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
-class JobType(str, enum.Enum):
+class JobType(enum.StrEnum):
     mailbox_backfill = "mailbox_backfill"
     mailbox_history_sync = "mailbox_history_sync"
     mailbox_watch_renew = "mailbox_watch_renew"
@@ -90,4 +90,3 @@ class JobType(str, enum.Enum):
     occurrence_stitch = "occurrence_stitch"
     ticket_apply_routing = "ticket_apply_routing"
     outbound_send = "outbound_send"
-
