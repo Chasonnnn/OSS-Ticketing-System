@@ -1,14 +1,16 @@
 # Workmap (Week-by-Week)
 
 ## Week 1
+- Status: Completed (2026-02-08)
 - Aim: Repo + infra foundation.
-- Outcome: monorepo scaffolding (`apps/api`, `apps/web`), Docker Compose for Postgres + MinIO, baseline docs (`AGENTS.md`, `WORKMAP.md`), API health endpoints.
-- Completion rule: `docker compose up -d postgres minio` works (port configurable), `cd apps/api && uv run -m alembic upgrade head` succeeds on a fresh DB, `cd apps/api && uv run -m pytest -v` passes, `cd apps/web && pnpm lint && pnpm tsc --noEmit && pnpm test --run` passes, and lockfiles are committed.
+- Outcome: monorepo scaffolding (`apps/api`, `apps/web`), Docker Compose for Postgres + MinIO, baseline docs (`AGENTS.md`, `WORKMAP.md`), initial Postgres schema (Alembic), API health/ready endpoints, CI running API/web checks.
+- Completion rule: `docker compose up -d postgres minio` works (port configurable), `cd apps/api && uv run -m alembic upgrade head` succeeds on a fresh DB, `cd apps/api && uv run -m pytest -v` passes, `cd apps/web && pnpm lint && pnpm tsc --noEmit && pnpm test --run` passes, CI is green, and lockfiles are committed.
 
 ## Week 2
+- Status: Completed (2026-02-08)
 - Aim: Identity + tenancy.
-- Outcome: org/user/membership + RBAC model, cookie auth, CSRF on mutations, org-scoped query helpers, audit/event logging skeleton.
-- Completion rule: every API query path is org-scoped by construction (tests prove cross-org data is invisible), every mutation endpoint rejects missing CSRF, and role checks are centralized dependencies with test coverage.
+- Outcome: org/user/membership + RBAC model, DB-backed sessions (opaque cookie token, hashed in DB), org context derived from session + membership (no org header/URL in v1), CSRF on mutations (double-submit cookie), centralized auth/org/role dependencies, audit/event logging skeleton, `updated_at` triggers, Postgres-backed tests that prove scoping.
+- Completion rule: every org-owned endpoint resolves `OrgContext` via one dependency (`require_org()`), every org query path is scoped by construction (tests prove cross-org data is invisible), every mutation endpoint rejects missing CSRF, and role checks are centralized dependencies with test coverage; CI starts Postgres, runs `alembic upgrade head`, and runs API tests against Postgres.
 
 ## Week 3
 - Aim: Mailbox connection (Gmail OAuth).
