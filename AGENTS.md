@@ -17,6 +17,12 @@ Build FULLY FUNCTIONAL, POLISHED features — not MVPs.
 - "TODO: Add feature X later" comments
 - Placeholder text instead of functionality
 
+## 1.1) No Backward Compatibility
+
+This project is still under active development. Breaking changes are acceptable.
+- Prioritize clean design over compatibility (API, DB, and UI can change).
+- Migrations can be rewritten and ingestion can be re-synced as needed.
+
 ## 2) Git Rules
 
 ### Commit Prefix Rule
@@ -69,6 +75,11 @@ Infra:
 - Postgres (required)
 - S3-compatible object storage (MinIO for self-host/dev)
 
+## 6.1) Dependency Freshness
+- Prefer the latest stable versions of packages/dependencies.
+- Do not intentionally choose older versions without a written justification.
+- Check and upgrade dependencies regularly; keep CI green after upgrades.
+
 ## 7) Repo Structure (Target)
 
 ```
@@ -113,4 +124,3 @@ Database:
 - Workspace mirroring rules MUST exclude the journal mailbox and any sending/relay mailbox, or you can create self-BCC loops.
 - Assume the same logical email can arrive multiple times; dedupe is normal behavior.
 - Treat Gmail `message.id` as a mailbox-specific occurrence, never as canonical identity.
-
