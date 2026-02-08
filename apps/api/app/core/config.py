@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(_REPO_ROOT / ".env", ".env"), extra="ignore")
 
     VERSION: str = "0.1.0"
+    APP_ENV: str = "dev"  # dev|test|prod
     DATABASE_URL: str = "postgresql+psycopg://tickets:tickets@localhost:5432/tickets_dev"
 
     API_BASE_URL: str = "http://localhost:8000"
@@ -21,6 +23,16 @@ class Settings(BaseSettings):
 
     JWT_SECRET: str = "change-me"
     ENCRYPTION_KEY_BASE64: str = "change-me-32-bytes-base64"
+
+    # Auth / cookies
+    ALLOW_DEV_LOGIN: bool = False
+    SESSION_TTL_SECONDS: int = 60 * 60 * 24 * 30  # 30 days
+    SESSION_COOKIE_NAME: str = "oss_session"
+    CSRF_COOKIE_NAME: str = "oss_csrf"
+    CSRF_HEADER_NAME: str = "x-csrf-token"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"  # lax|strict|none
+    COOKIE_DOMAIN: str | None = None
 
     S3_ENDPOINT_URL: str = "http://localhost:9000"
     S3_ACCESS_KEY_ID: str = "minio"
@@ -31,6 +43,13 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+
+    @field_validator("COOKIE_DOMAIN", mode="before")
+    @classmethod
+    def _empty_cookie_domain_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
 
 
 @lru_cache(maxsize=1)
