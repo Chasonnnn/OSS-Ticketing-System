@@ -11,3 +11,11 @@ def test_healthz_ok() -> None:
     res = client.get("/healthz")
     assert res.status_code == 200
     assert res.json() == {"status": "ok"}
+
+
+def test_readyz_ok() -> None:
+    app = create_app()
+    client = TestClient(app)
+    res = client.get("/readyz")
+    assert res.status_code == 200
+    assert res.json() == {"status": "ready"}
