@@ -15,6 +15,7 @@ __pycache__/
 
 # Node
 node_modules/
+.pnpm-store/
 .next/
 dist/
 *.tsbuildinfo
@@ -24,4 +25,5 @@ dist/
 data/
 var/
 *.sqlite
-
+# next-agents-md
+.next-docs/
