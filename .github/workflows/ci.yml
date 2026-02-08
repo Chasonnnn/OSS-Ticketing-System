@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install deps
+        run: cd apps/api && uv sync --extra test
+      - name: Lint
+        run: cd apps/api && uv run -- ruff check .
+      - name: Format (check)
+        run: cd apps/api && uv run -- ruff format --check .
+      - name: Tests
+        run: cd apps/api && uv run -m pytest -v
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+      - name: Install deps
+        run: cd apps/web && pnpm install --frozen-lockfile=false
+      - name: Lint
+        run: cd apps/web && pnpm lint
+      - name: Typecheck
+        run: cd apps/web && pnpm tsc --noEmit
+      - name: Tests
+        run: cd apps/web && pnpm test --run
+
