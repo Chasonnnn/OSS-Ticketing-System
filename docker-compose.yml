@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     environment:
       POSTGRES_DB: tickets_dev
       POSTGRES_USER: tickets
@@ -13,7 +13,8 @@ services:
       timeout: 5s
       retries: 20
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Postgres 18+ expects a mount at /var/lib/postgresql (major-version subdir layout).
+      - postgres_data_18:/var/lib/postgresql
 
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
@@ -48,5 +49,5 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
 
 volumes:
-  postgres_data:
+  postgres_data_18:
   minio_data:
