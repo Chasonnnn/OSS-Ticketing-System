@@ -8,6 +8,20 @@ on:
 jobs:
   api:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tickets_test
+          POSTGRES_USER: tickets
+          POSTGRES_PASSWORD: tickets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tickets -d tickets_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -16,12 +30,20 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
       - name: Install deps
-        run: cd apps/api && uv sync --extra test
+        run: cd apps/api && uv sync --extra dev --extra test
       - name: Lint
         run: cd apps/api && uv run -- ruff check .
       - name: Format (check)
         run: cd apps/api && uv run -- ruff format --check .
+      - name: Migrate
+        env:
+          DATABASE_URL: postgresql+psycopg://tickets:tickets@localhost:5432/tickets_test
+        run: cd apps/api && uv run -m alembic upgrade head
       - name: Tests
+        env:
+          APP_ENV: test
+          ALLOW_DEV_LOGIN: "true"
+          DATABASE_URL: postgresql+psycopg://tickets:tickets@localhost:5432/tickets_test
         run: cd apps/api && uv run -m pytest -v
 
   web:
@@ -36,11 +58,10 @@ jobs:
           node-version: 20
           cache: "pnpm"
       - name: Install deps
-        run: cd apps/web && pnpm install --frozen-lockfile=false
+        run: pnpm install --frozen-lockfile
       - name: Lint
         run: cd apps/web && pnpm lint
       - name: Typecheck
         run: cd apps/web && pnpm tsc --noEmit
       - name: Tests
         run: cd apps/web && pnpm test --run
-
