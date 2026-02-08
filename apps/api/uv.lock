@@ -513,6 +513,7 @@ dependencies = [
     { name = "boto3" },
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "orjson" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
@@ -527,7 +528,6 @@ dev = [
     { name = "ruff" },
 ]
 test = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -538,7 +538,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.42.44" },
     { name = "cryptography", specifier = ">=46.0.4" },
     { name = "fastapi", specifier = ">=0.128.5" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "orjson", specifier = ">=3.11.7" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.2" },
     { name = "pydantic", specifier = ">=2.12.5" },
