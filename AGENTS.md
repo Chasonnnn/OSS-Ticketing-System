@@ -2,6 +2,12 @@
 
 > Single source of truth for building this project. Every contributor (human or AI) follows these rules.
 
+## 0) Documentation First (Non-Negotiable)
+
+Before implementing or changing behavior that depends on external systems/frameworks (Next.js, FastAPI, SQLAlchemy/Alembic, Gmail API, OAuth, Postgres features, etc.), search and read the official documentation or upstream release notes first.
+- Prefer official domains/repos as sources of truth.
+- If docs are missing/unclear, inspect upstream source or create a minimal reproduction; do not guess.
+
 ## 1) Production-Quality Standard (Non-Negotiable)
 
 Build FULLY FUNCTIONAL, POLISHED features — not MVPs.
