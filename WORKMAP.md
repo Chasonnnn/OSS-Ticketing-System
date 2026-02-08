@@ -15,8 +15,8 @@
 ## Week 3
 - Status: Completed (2026-02-08)
 - Aim: Mailbox connection (Gmail OAuth).
-- Outcome: connect one journal Gmail mailbox per org, token encryption-at-rest, scope verification, mailbox health state (connected/degraded/paused).
-- Completion rule: an org admin can connect a Gmail account, the app persists encrypted refresh tokens, and a mailbox “connectivity check” endpoint/UI shows scopes + profile email and fails safely with actionable errors.
+- Outcome: connect one journal Gmail mailbox per org, token encryption-at-rest (AES-GCM), scope verification, one-time OAuth state to prevent replay, mailbox health state (connected/degraded/paused/disabled), and an admin UI to start OAuth + check connectivity.
+- Completion rule: an org admin can connect a Gmail account, the app persists encrypted refresh tokens, and a mailbox connectivity check endpoint/UI shows scopes + profile email and fails safely with actionable errors.
 
 ## Week 4
 - Aim: Sync engine (polling, replayable).
