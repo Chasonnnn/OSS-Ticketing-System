@@ -12,7 +12,7 @@ Enterprise-grade ticketing system built around Google Workspace journaling: mail
    - Then set `DATABASE_URL` to use the same port (e.g. `localhost:5433`)
    - The API reads configuration from repo-root `.env` (see `.env.example`).
 2. Backend:
-   - `cd apps/api && uv sync --extra test`
+   - `cd apps/api && uv sync --extra dev --extra test`
    - `cd apps/api && uv run -- uvicorn app.main:app --reload`
 3. Frontend:
    - `cd apps/web && pnpm dev`
