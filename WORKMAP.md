@@ -13,6 +13,7 @@
 - Completion rule: every org-owned endpoint resolves `OrgContext` via one dependency (`require_org()`), every org query path is scoped by construction (tests prove cross-org data is invisible), every mutation endpoint rejects missing CSRF, and role checks are centralized dependencies with test coverage; CI starts Postgres, runs `alembic upgrade head`, and runs API tests against Postgres.
 
 ## Week 3
+- Status: Completed (2026-02-08)
 - Aim: Mailbox connection (Gmail OAuth).
 - Outcome: connect one journal Gmail mailbox per org, token encryption-at-rest, scope verification, mailbox health state (connected/degraded/paused).
 - Completion rule: an org admin can connect a Gmail account, the app persists encrypted refresh tokens, and a mailbox “connectivity check” endpoint/UI shows scopes + profile email and fails safely with actionable errors.
