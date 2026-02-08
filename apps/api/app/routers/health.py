@@ -18,4 +18,3 @@ def healthz() -> dict[str, str]:
 def readyz(session: Session = Depends(get_session)) -> dict[str, str]:
     session.execute(text("select 1"))
     return {"status": "ready"}
-

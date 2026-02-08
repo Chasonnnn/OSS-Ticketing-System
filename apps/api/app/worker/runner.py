@@ -3,7 +3,6 @@ from __future__ import annotations
 import socket
 import time
 from dataclasses import dataclass
-from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import text
@@ -95,10 +94,14 @@ def _mark_succeeded(*, session: Session, job_id: UUID) -> None:
 
 
 def _mark_failed(*, session: Session, job_id: UUID, error: str, permanent: bool) -> None:
-    row = session.execute(
-        text("SELECT attempts, max_attempts FROM bg_jobs WHERE id = :id FOR UPDATE"),
-        {"id": str(job_id)},
-    ).mappings().fetchone()
+    row = (
+        session.execute(
+            text("SELECT attempts, max_attempts FROM bg_jobs WHERE id = :id FOR UPDATE"),
+            {"id": str(job_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     if row is None:
         return
     attempts = int(row["attempts"]) + 1
@@ -146,4 +149,3 @@ def _mark_failed(*, session: Session, job_id: UUID, error: str, permanent: bool)
             "backoff_seconds": backoff_seconds,
         },
     )
-

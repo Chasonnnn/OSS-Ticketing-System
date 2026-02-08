@@ -1,7 +1,7 @@
 """Initial schema (org, tickets, messages, occurrences, jobs)
 
 Revision ID: 20260208_1500
-Revises: 
+Revises:
 Create Date: 2026-02-08
 
 """
@@ -9,7 +9,6 @@ Create Date: 2026-02-08
 from __future__ import annotations
 
 from alembic import op
-
 
 revision = "20260208_1500"
 down_revision = None
@@ -399,11 +398,21 @@ CREATE TABLE IF NOT EXISTS message_contents (
 );
 """
     )
-    op.execute("CREATE INDEX IF NOT EXISTS message_contents_search_idx ON message_contents USING gin (search_tsv);")
-    op.execute("CREATE INDEX IF NOT EXISTS message_contents_from_idx ON message_contents (organization_id, from_email);")
-    op.execute("CREATE INDEX IF NOT EXISTS message_contents_date_idx ON message_contents (organization_id, date_header DESC);")
-    op.execute("CREATE INDEX IF NOT EXISTS message_contents_to_gin_idx ON message_contents USING gin (to_emails);")
-    op.execute("CREATE INDEX IF NOT EXISTS message_contents_cc_gin_idx ON message_contents USING gin (cc_emails);")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS message_contents_search_idx ON message_contents USING gin (search_tsv);"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS message_contents_from_idx ON message_contents (organization_id, from_email);"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS message_contents_date_idx ON message_contents (organization_id, date_header DESC);"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS message_contents_to_gin_idx ON message_contents USING gin (to_emails);"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS message_contents_cc_gin_idx ON message_contents USING gin (cc_emails);"
+    )
 
     op.execute(
         """
@@ -562,7 +571,9 @@ CREATE TABLE IF NOT EXISTS ticket_tags (
 );
 """
     )
-    op.execute("CREATE INDEX IF NOT EXISTS ticket_tags_tag_idx ON ticket_tags (organization_id, tag_id);")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ticket_tags_tag_idx ON ticket_tags (organization_id, tag_id);"
+    )
 
     op.execute(
         """
@@ -663,7 +674,9 @@ CREATE TABLE IF NOT EXISTS message_occurrences (
     op.execute(
         "CREATE INDEX IF NOT EXISTS message_occurrences_thread_idx ON message_occurrences (organization_id, gmail_thread_id);"
     )
-    op.execute("CREATE INDEX IF NOT EXISTS message_occurrences_state_idx ON message_occurrences (organization_id, state);")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS message_occurrences_state_idx ON message_occurrences (organization_id, state);"
+    )
     op.execute(
         "CREATE INDEX IF NOT EXISTS message_occurrences_message_idx ON message_occurrences (organization_id, message_id);"
     )
@@ -752,4 +765,3 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS mailbox_provider;")
     op.execute("DROP TYPE IF EXISTS mailbox_purpose;")
     op.execute("DROP TYPE IF EXISTS membership_role;")
-

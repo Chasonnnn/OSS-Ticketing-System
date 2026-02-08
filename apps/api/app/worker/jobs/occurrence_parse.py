@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.enums import MessageDirection, OccurrenceState
-from app.storage.factory import build_blob_store
 from app.services.ingest.dedupe import (
     compute_attachment_sha256,
     compute_fingerprint_v1,
@@ -13,22 +13,27 @@ from app.services.ingest.dedupe import (
     extract_uuid_header,
 )
 from app.services.ingest.parser import parse_raw_email
+from app.storage.factory import build_blob_store
 
 
 def occurrence_parse(*, session: Session, payload: dict) -> None:
     occurrence_id = UUID(payload["occurrence_id"])
 
-    occ = session.execute(
-        text(
-            """
+    occ = (
+        session.execute(
+            text(
+                """
             SELECT id, organization_id, state, raw_blob_id, message_id
             FROM message_occurrences
             WHERE id = :id
             FOR UPDATE
             """
-        ),
-        {"id": str(occurrence_id)},
-    ).mappings().fetchone()
+            ),
+            {"id": str(occurrence_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     if occ is None:
         return
     if occ["message_id"] is not None and occ["state"] in (
@@ -53,10 +58,14 @@ def occurrence_parse(*, session: Session, payload: dict) -> None:
         )
         return
 
-    raw_row = session.execute(
-        text("SELECT storage_key FROM blobs WHERE id = :id"),
-        {"id": str(occ["raw_blob_id"])},
-    ).mappings().fetchone()
+    raw_row = (
+        session.execute(
+            text("SELECT storage_key FROM blobs WHERE id = :id"),
+            {"id": str(occ["raw_blob_id"])},
+        )
+        .mappings()
+        .fetchone()
+    )
     if raw_row is None:
         session.execute(
             text(
@@ -108,7 +117,9 @@ def occurrence_parse(*, session: Session, payload: dict) -> None:
     )
 
     org_id = UUID(str(occ["organization_id"]))
-    _insert_message_content(session=session, organization_id=org_id, message_id=message_id, parsed=parsed)
+    _insert_message_content(
+        session=session, organization_id=org_id, message_id=message_id, parsed=parsed
+    )
     _store_attachments(
         session=session,
         organization_id=org_id,
@@ -148,23 +159,28 @@ def _upsert_canonical_message(
     signature_v1: bytes,
 ) -> UUID:
     if oss_message_id is not None:
-        existing = session.execute(
-            text(
-                """
+        existing = (
+            session.execute(
+                text(
+                    """
                 SELECT message_id
                 FROM message_oss_ids
                 WHERE organization_id = :org_id
                   AND oss_message_id = :oss_message_id
                 """
-            ),
-            {"org_id": str(organization_id), "oss_message_id": str(oss_message_id)},
-        ).mappings().fetchone()
+                ),
+                {"org_id": str(organization_id), "oss_message_id": str(oss_message_id)},
+            )
+            .mappings()
+            .fetchone()
+        )
         if existing is not None:
             return UUID(str(existing["message_id"]))
 
-    existing_fp = session.execute(
-        text(
-            """
+    existing_fp = (
+        session.execute(
+            text(
+                """
             SELECT message_id
             FROM message_fingerprints
             WHERE organization_id = :org_id
@@ -172,15 +188,23 @@ def _upsert_canonical_message(
               AND fingerprint = :fingerprint
               AND signature_v1 = :signature
             """
-        ),
-        {"org_id": str(organization_id), "fingerprint": fingerprint_v1, "signature": signature_v1},
-    ).mappings().fetchone()
+            ),
+            {
+                "org_id": str(organization_id),
+                "fingerprint": fingerprint_v1,
+                "signature": signature_v1,
+            },
+        )
+        .mappings()
+        .fetchone()
+    )
     if existing_fp is not None:
         return UUID(str(existing_fp["message_id"]))
 
-    row = session.execute(
-        text(
-            """
+    row = (
+        session.execute(
+            text(
+                """
             INSERT INTO messages (
               organization_id,
               direction,
@@ -203,16 +227,19 @@ def _upsert_canonical_message(
             )
             RETURNING id
             """
-        ),
-        {
-            "org_id": str(organization_id),
-            "direction": direction,
-            "oss_message_id": str(oss_message_id) if oss_message_id else None,
-            "rfc_message_id": rfc_message_id,
-            "fingerprint": fingerprint_v1,
-            "signature": signature_v1,
-        },
-    ).mappings().fetchone()
+            ),
+            {
+                "org_id": str(organization_id),
+                "direction": direction,
+                "oss_message_id": str(oss_message_id) if oss_message_id else None,
+                "rfc_message_id": rfc_message_id,
+                "fingerprint": fingerprint_v1,
+                "signature": signature_v1,
+            },
+        )
+        .mappings()
+        .fetchone()
+    )
     assert row is not None
     message_id = UUID(str(row["id"]))
 
@@ -281,18 +308,24 @@ def _upsert_canonical_message(
     return message_id
 
 
-def _insert_message_content(*, session: Session, organization_id: UUID, message_id: UUID, parsed) -> None:
-    row = session.execute(
-        text(
-            """
+def _insert_message_content(
+    *, session: Session, organization_id: UUID, message_id: UUID, parsed
+) -> None:
+    row = (
+        session.execute(
+            text(
+                """
             SELECT COALESCE(MAX(content_version), 0) AS max_v
             FROM message_contents
             WHERE organization_id = :org_id
               AND message_id = :message_id
             """
-        ),
-        {"org_id": str(organization_id), "message_id": str(message_id)},
-    ).mappings().fetchone()
+            ),
+            {"org_id": str(organization_id), "message_id": str(message_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     max_v = int(row["max_v"]) if row is not None else 0
     content_version = max_v + 1 if max_v == 0 else max_v
 
@@ -381,7 +414,11 @@ def _insert_message_content(*, session: Session, organization_id: UUID, message_
                 ON CONFLICT DO NOTHING
                 """
             ),
-            {"org_id": str(organization_id), "message_id": str(message_id), "ref": parsed.in_reply_to},
+            {
+                "org_id": str(organization_id),
+                "message_id": str(message_id),
+                "ref": parsed.in_reply_to,
+            },
         )
     for ref in parsed.references:
         session.execute(
@@ -417,13 +454,16 @@ def _store_attachments(
         sha_hex = sha.hex()
         storage_key = f"{organization_id}/attachments/{sha_hex}"
         try:
-            stored = blob_store.put_bytes(key=storage_key, data=att.payload, content_type=att.content_type)
+            stored = blob_store.put_bytes(
+                key=storage_key, data=att.payload, content_type=att.content_type
+            )
         except Exception:
             continue
 
-        blob_row = session.execute(
-            text(
-                """
+        blob_row = (
+            session.execute(
+                text(
+                    """
                 INSERT INTO blobs (
                   organization_id,
                   kind,
@@ -438,15 +478,18 @@ def _store_attachments(
                 DO UPDATE SET storage_key = EXCLUDED.storage_key
                 RETURNING id
                 """
-            ),
-            {
-                "org_id": str(organization_id),
-                "sha256": sha,
-                "size": stored.size_bytes,
-                "key": stored.storage_key,
-                "content_type": att.content_type,
-            },
-        ).mappings().fetchone()
+                ),
+                {
+                    "org_id": str(organization_id),
+                    "sha256": sha,
+                    "size": stored.size_bytes,
+                    "key": stored.storage_key,
+                    "content_type": att.content_type,
+                },
+            )
+            .mappings()
+            .fetchone()
+        )
         if blob_row is None:
             continue
 

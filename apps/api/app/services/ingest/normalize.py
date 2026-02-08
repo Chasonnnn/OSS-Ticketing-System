@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 _SUBJECT_PREFIX_RE = re.compile(r"^\s*(re|fw|fwd)\s*:\s*", re.IGNORECASE)
 
 
@@ -16,4 +15,3 @@ def normalize_subject(subject: str | None) -> str | None:
             break
         s = new_s.strip()
     return s or None
-

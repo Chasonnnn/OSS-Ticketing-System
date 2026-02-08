@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models.base import Base
+from app.models.base import Base as Base  # noqa: F401
 from app.models.enums import (  # noqa: F401
     BlobKind,
     JobStatus,
@@ -43,4 +43,3 @@ from app.models.tickets import (  # noqa: F401
     TicketNote,
     TicketTag,
 )
-

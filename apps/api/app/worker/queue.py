@@ -71,4 +71,3 @@ def _json_dumps(payload: dict) -> str:
     import json
 
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
-

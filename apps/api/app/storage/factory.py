@@ -20,4 +20,3 @@ def build_blob_store() -> BlobStore:
             )
         )
     raise ValueError(f"Unsupported BLOB_STORE: {settings.BLOB_STORE}")
-

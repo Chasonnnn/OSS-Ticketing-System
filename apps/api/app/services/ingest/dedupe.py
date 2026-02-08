@@ -68,4 +68,3 @@ def extract_uuid_header(headers_json: dict, header_name: str) -> UUID | None:
         return UUID(raw)
     except ValueError:
         return None
-

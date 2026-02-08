@@ -69,4 +69,3 @@ def sanitize_html(html: str | None) -> str | None:
     cleaned = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
     cleaned = bleach.linkify(cleaned)
     return cleaned or None
-

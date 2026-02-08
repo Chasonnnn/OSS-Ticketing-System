@@ -30,4 +30,3 @@ class ParsedEmail:
     in_reply_to: str | None
     references: list[str]
     attachments: list[ParsedAttachment]
-

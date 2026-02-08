@@ -7,4 +7,3 @@ class JobError(RuntimeError):
 
 class PermanentJobError(JobError):
     pass
-

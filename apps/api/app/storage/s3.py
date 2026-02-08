@@ -45,4 +45,3 @@ class S3BlobStore(BlobStore):
             return bytes(body)
         except (BotoCoreError, ClientError) as e:
             raise BlobStoreError(str(e)) from e
-

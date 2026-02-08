@@ -15,17 +15,21 @@ from app.worker.queue import enqueue_job
 def occurrence_fetch_raw(*, session: Session, payload: dict) -> None:
     occurrence_id = UUID(payload["occurrence_id"])
 
-    occ = session.execute(
-        text(
-            """
+    occ = (
+        session.execute(
+            text(
+                """
             SELECT id, organization_id, mailbox_id, gmail_message_id, state, raw_blob_id
             FROM message_occurrences
             WHERE id = :id
             FOR UPDATE
             """
-        ),
-        {"id": str(occurrence_id)},
-    ).mappings().fetchone()
+            ),
+            {"id": str(occurrence_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     if occ is None:
         return
 
@@ -61,9 +65,10 @@ def occurrence_fetch_raw(*, session: Session, payload: dict) -> None:
     blob_store = build_blob_store()
     blob_store.put_bytes(key=storage_key, data=raw_bytes, content_type="message/rfc822")
 
-    blob_row = session.execute(
-        text(
-            """
+    blob_row = (
+        session.execute(
+            text(
+                """
             INSERT INTO blobs (
               organization_id,
               kind,
@@ -78,16 +83,19 @@ def occurrence_fetch_raw(*, session: Session, payload: dict) -> None:
             DO UPDATE SET storage_key = EXCLUDED.storage_key
             RETURNING id
             """
-        ),
-        {
-            "org_id": str(org_id),
-            "kind": BlobKind.raw_eml.value,
-            "sha256": sha,
-            "size": len(raw_bytes),
-            "key": storage_key,
-            "content_type": "message/rfc822",
-        },
-    ).mappings().fetchone()
+            ),
+            {
+                "org_id": str(org_id),
+                "kind": BlobKind.raw_eml.value,
+                "sha256": sha,
+                "size": len(raw_bytes),
+                "key": storage_key,
+                "content_type": "message/rfc822",
+            },
+        )
+        .mappings()
+        .fetchone()
+    )
     assert blob_row is not None
     raw_blob_id = UUID(str(blob_row["id"]))
 
@@ -125,4 +133,3 @@ def _get_raw_bytes_from_payload(payload: dict) -> bytes | None:
     if not raw_b64:
         return None
     return base64.b64decode(raw_b64.encode("ascii"), validate=True)
-

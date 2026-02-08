@@ -34,4 +34,3 @@ class LocalBlobStore(BlobStore):
             return path.read_bytes()
         except OSError as e:
             raise BlobStoreError(str(e)) from e
-

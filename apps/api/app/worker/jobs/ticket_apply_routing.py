@@ -12,17 +12,21 @@ from app.models.enums import OccurrenceState
 def ticket_apply_routing(*, session: Session, payload: dict) -> None:
     occurrence_id = UUID(payload["occurrence_id"])
 
-    occ = session.execute(
-        text(
-            """
+    occ = (
+        session.execute(
+            text(
+                """
             SELECT id, organization_id, state, ticket_id, original_recipient
             FROM message_occurrences
             WHERE id = :id
             FOR UPDATE
             """
-        ),
-        {"id": str(occurrence_id)},
-    ).mappings().fetchone()
+            ),
+            {"id": str(occurrence_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     if occ is None:
         return
     if occ["state"] == OccurrenceState.routed.value:
@@ -48,28 +52,44 @@ def ticket_apply_routing(*, session: Session, payload: dict) -> None:
 
     allowlisted = _is_allowlisted(session=session, org_id=org_id, recipient=recipient)
     if not allowlisted:
-        _mark_spam(session=session, org_id=org_id, ticket_id=ticket_id, occurrence_id=occurrence_id, recipient=recipient)
+        _mark_spam(
+            session=session,
+            org_id=org_id,
+            ticket_id=ticket_id,
+            occurrence_id=occurrence_id,
+            recipient=recipient,
+        )
         _mark_routed(session=session, occurrence_id=occurrence_id)
         return
 
-    _apply_first_matching_rule(session=session, org_id=org_id, ticket_id=ticket_id, recipient=recipient, occurrence_id=occurrence_id)
+    _apply_first_matching_rule(
+        session=session,
+        org_id=org_id,
+        ticket_id=ticket_id,
+        recipient=recipient,
+        occurrence_id=occurrence_id,
+    )
     _mark_routed(session=session, occurrence_id=occurrence_id)
 
 
 def _is_allowlisted(*, session: Session, org_id: UUID, recipient: str) -> bool:
     if not recipient:
         return False
-    rows = session.execute(
-        text(
-            """
+    rows = (
+        session.execute(
+            text(
+                """
             SELECT pattern
             FROM recipient_allowlist
             WHERE organization_id = :org_id
               AND is_enabled = true
             """
-        ),
-        {"org_id": str(org_id)},
-    ).mappings().all()
+            ),
+            {"org_id": str(org_id)},
+        )
+        .mappings()
+        .all()
+    )
     for r in rows:
         pattern = (r["pattern"] or "").lower()
         if not pattern:
@@ -87,9 +107,10 @@ def _apply_first_matching_rule(
     recipient: str,
     occurrence_id: UUID,
 ) -> None:
-    msg_from = session.execute(
-        text(
-            """
+    msg_from = (
+        session.execute(
+            text(
+                """
             SELECT mc.from_email, m.direction
             FROM ticket_messages tm
             JOIN messages m ON m.id = tm.message_id
@@ -99,16 +120,20 @@ def _apply_first_matching_rule(
             ORDER BY mc.parsed_at DESC
             LIMIT 1
             """
-        ),
-        {"org_id": str(org_id), "ticket_id": str(ticket_id)},
-    ).mappings().fetchone()
+            ),
+            {"org_id": str(org_id), "ticket_id": str(ticket_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     from_email = (msg_from["from_email"] or "").lower() if msg_from else ""
     sender_domain = from_email.split("@", 1)[1] if "@" in from_email else ""
     direction = msg_from["direction"] if msg_from else None
 
-    rules = session.execute(
-        text(
-            """
+    rules = (
+        session.execute(
+            text(
+                """
             SELECT id, match_recipient_pattern, match_sender_domain_pattern, match_sender_email_pattern, match_direction,
                    action_assign_queue_id, action_assign_user_id, action_set_status, action_drop, action_auto_close
             FROM routing_rules
@@ -116,18 +141,35 @@ def _apply_first_matching_rule(
               AND is_enabled = true
             ORDER BY priority ASC, id ASC
             """
-        ),
-        {"org_id": str(org_id)},
-    ).mappings().all()
+            ),
+            {"org_id": str(org_id)},
+        )
+        .mappings()
+        .all()
+    )
 
     for rule in rules:
-        if not _rule_matches(rule, recipient=recipient, sender_domain=sender_domain, sender_email=from_email, direction=direction):
+        if not _rule_matches(
+            rule,
+            recipient=recipient,
+            sender_domain=sender_domain,
+            sender_email=from_email,
+            direction=direction,
+        ):
             continue
-        _apply_rule_actions(session=session, org_id=org_id, ticket_id=ticket_id, rule=rule, occurrence_id=occurrence_id)
+        _apply_rule_actions(
+            session=session,
+            org_id=org_id,
+            ticket_id=ticket_id,
+            rule=rule,
+            occurrence_id=occurrence_id,
+        )
         break
 
 
-def _rule_matches(rule: dict, *, recipient: str, sender_domain: str, sender_email: str, direction: str | None) -> bool:
+def _rule_matches(
+    rule: dict, *, recipient: str, sender_domain: str, sender_email: str, direction: str | None
+) -> bool:
     rp = (rule["match_recipient_pattern"] or "").lower()
     if rp and not fnmatch.fnmatch(recipient, rp):
         return False
@@ -138,9 +180,7 @@ def _rule_matches(rule: dict, *, recipient: str, sender_domain: str, sender_emai
     if sep and not fnmatch.fnmatch(sender_email, sep):
         return False
     md = rule["match_direction"]
-    if md and direction and md != direction:
-        return False
-    return True
+    return not (md and direction and md != direction)
 
 
 def _apply_rule_actions(
@@ -151,18 +191,22 @@ def _apply_rule_actions(
     rule: dict,
     occurrence_id: UUID,
 ) -> None:
-    before = session.execute(
-        text(
-            """
+    before = (
+        session.execute(
+            text(
+                """
             SELECT status, assignee_user_id, assignee_queue_id
             FROM tickets
             WHERE organization_id = :org_id
               AND id = :ticket_id
             FOR UPDATE
             """
-        ),
-        {"org_id": str(org_id), "ticket_id": str(ticket_id)},
-    ).mappings().fetchone()
+            ),
+            {"org_id": str(org_id), "ticket_id": str(ticket_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
     if before is None:
         return
 
@@ -203,17 +247,21 @@ def _apply_rule_actions(
             params,
         )
 
-    after = session.execute(
-        text(
-            """
+    after = (
+        session.execute(
+            text(
+                """
             SELECT status, assignee_user_id, assignee_queue_id
             FROM tickets
             WHERE organization_id = :org_id
               AND id = :ticket_id
             """
-        ),
-        {"org_id": str(org_id), "ticket_id": str(ticket_id)},
-    ).mappings().fetchone()
+            ),
+            {"org_id": str(org_id), "ticket_id": str(ticket_id)},
+        )
+        .mappings()
+        .fetchone()
+    )
 
     session.execute(
         text(
@@ -269,7 +317,9 @@ def _mark_spam(
         {
             "org_id": str(org_id),
             "ticket_id": str(ticket_id),
-            "event_data": _json_dumps({"occurrence_id": str(occurrence_id), "recipient": recipient}),
+            "event_data": _json_dumps(
+                {"occurrence_id": str(occurrence_id), "recipient": recipient}
+            ),
         },
     )
 
@@ -294,4 +344,3 @@ def _json_dumps(payload: dict) -> str:
     import json
 
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
-

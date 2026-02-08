@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email import policy
 from email.headerregistry import Address
 from email.message import Message
@@ -20,8 +20,8 @@ def _parse_date(value: str | None) -> datetime | None:
     except (TypeError, ValueError):
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _lower_emails(emails: list[str]) -> list[str]:
@@ -57,12 +57,12 @@ def _extract_from(msg: Message) -> tuple[str | None, str | None]:
 
 def _is_attachment(part: Message) -> bool:
     disp = (part.get_content_disposition() or "").lower()
-    if disp in {"attachment", "inline"} and part.get_filename():
-        return True
-    return False
+    return bool(disp in {"attachment", "inline"} and part.get_filename())
 
 
-def _walk_bodies_and_attachments(msg: Message) -> tuple[str | None, str | None, list[ParsedAttachment]]:
+def _walk_bodies_and_attachments(
+    msg: Message,
+) -> tuple[str | None, str | None, list[ParsedAttachment]]:
     text_parts: list[str] = []
     html_parts: list[str] = []
     attachments: list[ParsedAttachment] = []
@@ -100,9 +100,8 @@ def _walk_bodies_and_attachments(msg: Message) -> tuple[str | None, str | None, 
         if content_type == "text/plain":
             if payload_text.strip():
                 text_parts.append(payload_text)
-        elif content_type == "text/html":
-            if payload_text.strip():
-                html_parts.append(payload_text)
+        elif content_type == "text/html" and payload_text.strip():
+            html_parts.append(payload_text)
 
     body_text = "\n\n".join([p.strip() for p in text_parts if p.strip()]) or None
     body_html = "\n\n".join([p.strip() for p in html_parts if p.strip()]) or None
@@ -153,4 +152,3 @@ def parse_raw_email(raw: bytes) -> ParsedEmail:
         references=references,
         attachments=attachments,
     )
-
