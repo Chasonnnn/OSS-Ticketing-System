@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from base64 import b64encode
 from contextlib import suppress
 from pathlib import Path
 
@@ -54,6 +55,10 @@ def _test_database() -> None:
     os.environ.setdefault("APP_ENV", "test")
     os.environ.setdefault("ALLOW_DEV_LOGIN", "true")
     os.environ.setdefault("COOKIE_SECURE", "false")
+    os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
+    os.environ.setdefault("ENCRYPTION_KEY_BASE64", b64encode(b"\x00" * 32).decode("ascii"))
+    os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
+    os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test-google-client-secret")
 
     # Clear cached settings/engines so imports inside the test session use the test DB.
     from app.core.config import get_settings
