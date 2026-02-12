@@ -57,6 +57,12 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
   - `mailbox_backfill` lists mailbox messages and upserts `message_occurrences`, then enqueues `occurrence_fetch_raw` jobs.
   - `mailbox_history_sync` processes Gmail history deltas and enqueues `occurrence_fetch_raw` jobs for new message additions.
   - If Gmail returns an invalid/expired `historyId`, the system enqueues a full `mailbox_backfill` recovery job.
+  - Repeated mailbox sync failures trip a circuit breaker that auto-pauses ingestion for that mailbox.
+- Admin sync controls:
+  - `POST /mailboxes/{mailbox_id}/sync/backfill`
+  - `POST /mailboxes/{mailbox_id}/sync/history`
+  - `GET /mailboxes/{mailbox_id}/sync/status`
+  - `POST /mailboxes/{mailbox_id}/sync/resume` (clears pause and queues history sync)
 
 ## Tests
 - API:

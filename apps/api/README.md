@@ -13,3 +13,13 @@ FastAPI + Postgres backend for the OSS Ticketing System.
 ## Worker
 - Run the ingestion worker:
   - `uv run -m app.worker`
+
+## Sync Admin Endpoints
+- Trigger full backfill:
+  - `POST /mailboxes/{mailbox_id}/sync/backfill`
+- Trigger incremental history sync:
+  - `POST /mailboxes/{mailbox_id}/sync/history`
+- Check sync status (lag + queued/running jobs):
+  - `GET /mailboxes/{mailbox_id}/sync/status`
+- Resume auto-paused ingestion and enqueue history sync:
+  - `POST /mailboxes/{mailbox_id}/sync/resume`
