@@ -33,3 +33,8 @@ class ConnectivityResponse(BaseModel):
     profile_email: str | None
     scopes: list[str]
     error: str | None
+
+
+class MailboxSyncEnqueueResponse(BaseModel):
+    job_type: str
+    job_id: UUID | None

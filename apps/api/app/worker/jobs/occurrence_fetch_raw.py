@@ -132,4 +132,9 @@ def _get_raw_bytes_from_payload(payload: dict) -> bytes | None:
     raw_b64 = payload.get("raw_eml_base64")
     if not raw_b64:
         return None
-    return base64.b64decode(raw_b64.encode("ascii"), validate=True)
+    try:
+        return base64.b64decode(raw_b64.encode("ascii"), validate=True)
+    except Exception:  # noqa: BLE001
+        # Fallback for base64url payloads (Gmail uses URL-safe base64 in API responses).
+        padded = raw_b64 + ("=" * ((4 - len(raw_b64) % 4) % 4))
+        return base64.urlsafe_b64decode(padded.encode("ascii"))

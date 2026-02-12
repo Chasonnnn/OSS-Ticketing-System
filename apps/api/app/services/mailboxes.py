@@ -22,6 +22,7 @@ from app.services.google.oauth import (
     exchange_code_for_tokens,
     refresh_access_token,
 )
+from app.services.mailbox_sync import enqueue_mailbox_backfill
 
 REQUIRED_GMAIL_SCOPES = [
     # Needed for journal ingestion (read-only access, including RFC822/raw).
@@ -248,6 +249,12 @@ def complete_gmail_journal_oauth(
         actor_user_id=user_id,
         event_type="mailboxes.gmail_journal.connected",
         event_data={"mailbox_id": str(mailbox.id)},
+    )
+    enqueue_mailbox_backfill(
+        session=session,
+        organization_id=organization_id,
+        mailbox_id=mailbox.id,
+        reason="mailbox_connected",
     )
 
     return mailbox

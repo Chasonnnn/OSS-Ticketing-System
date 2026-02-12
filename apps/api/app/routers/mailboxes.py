@@ -19,7 +19,9 @@ from app.schemas.mailboxes import (
     GmailOAuthCallbackResponse,
     GmailOAuthStartResponse,
     MailboxOut,
+    MailboxSyncEnqueueResponse,
 )
+from app.services.mailbox_sync import enqueue_mailbox_backfill, enqueue_mailbox_history_sync
 from app.services.mailboxes import (
     check_gmail_connectivity,
     complete_gmail_journal_oauth,
@@ -120,3 +122,56 @@ def mailbox_connectivity(
         scopes=chk.scopes,
         error=chk.error,
     )
+
+
+@router.post("/{mailbox_id}/sync/backfill", response_model=MailboxSyncEnqueueResponse)
+def mailbox_sync_backfill_enqueue(
+    mailbox_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> MailboxSyncEnqueueResponse:
+    _ensure_mailbox_exists(
+        session=session, organization_id=org.organization.id, mailbox_id=mailbox_id
+    )
+    job_id = enqueue_mailbox_backfill(
+        session=session,
+        organization_id=org.organization.id,
+        mailbox_id=mailbox_id,
+        reason="manual_admin_backfill",
+    )
+    session.commit()
+    return MailboxSyncEnqueueResponse(job_type="mailbox_backfill", job_id=job_id)
+
+
+@router.post("/{mailbox_id}/sync/history", response_model=MailboxSyncEnqueueResponse)
+def mailbox_sync_history_enqueue(
+    mailbox_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> MailboxSyncEnqueueResponse:
+    _ensure_mailbox_exists(
+        session=session, organization_id=org.organization.id, mailbox_id=mailbox_id
+    )
+    job_id = enqueue_mailbox_history_sync(
+        session=session,
+        organization_id=org.organization.id,
+        mailbox_id=mailbox_id,
+        reason="manual_admin_history",
+    )
+    session.commit()
+    return MailboxSyncEnqueueResponse(job_type="mailbox_history_sync", job_id=job_id)
+
+
+def _ensure_mailbox_exists(*, session: Session, organization_id: UUID, mailbox_id: UUID) -> None:
+    row = (
+        session.execute(
+            select(Mailbox.id).where(
+                Mailbox.organization_id == organization_id,
+                Mailbox.id == mailbox_id,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mailbox not found")
