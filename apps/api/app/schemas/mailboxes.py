@@ -51,3 +51,9 @@ class MailboxSyncStatusResponse(BaseModel):
     sync_lag_seconds: int | None
     queued_jobs_by_type: dict[str, int]
     running_jobs_by_type: dict[str, int]
+
+
+class MailboxSyncResumeResponse(BaseModel):
+    mailbox_id: UUID
+    resumed: bool
+    history_sync_job_id: UUID | None

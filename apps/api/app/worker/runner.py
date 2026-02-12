@@ -20,6 +20,8 @@ from app.worker.queue import enqueue_job
 class WorkerConfig:
     poll_interval_seconds: float = 0.5
     history_poll_interval_seconds: float = 30.0
+    mailbox_sync_circuit_breaker_attempts: int = 5
+    mailbox_sync_pause_seconds: float = 900.0
     worker_id: str = socket.gethostname()
 
 
@@ -39,13 +41,30 @@ def run_one_job(*, config: WorkerConfig) -> bool:
             return False
 
         job_id = UUID(str(job["id"]))
+        mailbox_id = UUID(str(job["mailbox_id"])) if job.get("mailbox_id") is not None else None
         job_type = JobType(job["type"])
         try:
             handle_job(session=session, job_id=job_id, job_type=job_type, payload=job["payload"])
         except PermanentJobError as e:
-            _mark_failed(session=session, job_id=job_id, error=str(e), permanent=True)
+            _mark_failed(
+                session=session,
+                config=config,
+                job_id=job_id,
+                job_type=job_type,
+                mailbox_id=mailbox_id,
+                error=str(e),
+                permanent=True,
+            )
         except Exception as e:
-            _mark_failed(session=session, job_id=job_id, error=str(e), permanent=False)
+            _mark_failed(
+                session=session,
+                config=config,
+                job_id=job_id,
+                job_type=job_type,
+                mailbox_id=mailbox_id,
+                error=str(e),
+                permanent=False,
+            )
         else:
             _mark_succeeded(session=session, job_id=job_id)
             _schedule_follow_up_jobs(
@@ -102,7 +121,16 @@ def _mark_succeeded(*, session: Session, job_id: UUID) -> None:
     )
 
 
-def _mark_failed(*, session: Session, job_id: UUID, error: str, permanent: bool) -> None:
+def _mark_failed(
+    *,
+    session: Session,
+    config: WorkerConfig,
+    job_id: UUID,
+    job_type: JobType,
+    mailbox_id: UUID | None,
+    error: str,
+    permanent: bool,
+) -> None:
     row = (
         session.execute(
             text("SELECT attempts, max_attempts FROM bg_jobs WHERE id = :id FOR UPDATE"),
@@ -115,6 +143,40 @@ def _mark_failed(*, session: Session, job_id: UUID, error: str, permanent: bool)
         return
     attempts = int(row["attempts"]) + 1
     max_attempts = int(row["max_attempts"])
+
+    if (
+        not permanent
+        and mailbox_id is not None
+        and job_type in {JobType.mailbox_backfill, JobType.mailbox_history_sync}
+        and attempts >= max(1, config.mailbox_sync_circuit_breaker_attempts)
+    ):
+        _pause_mailbox_ingestion(
+            session=session,
+            config=config,
+            mailbox_id=mailbox_id,
+            job_type=job_type,
+            attempts=attempts,
+            error=error,
+        )
+        session.execute(
+            text(
+                """
+                UPDATE bg_jobs
+                SET status = :status,
+                    attempts = :attempts,
+                    last_error = :error,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": str(job_id),
+                "status": JobStatus.failed.value,
+                "attempts": attempts,
+                "error": error,
+            },
+        )
+        return
 
     if permanent or attempts >= max_attempts:
         session.execute(
@@ -156,6 +218,39 @@ def _mark_failed(*, session: Session, job_id: UUID, error: str, permanent: bool)
             "attempts": attempts,
             "error": error,
             "backoff_seconds": backoff_seconds,
+        },
+    )
+
+
+def _pause_mailbox_ingestion(
+    *,
+    session: Session,
+    config: WorkerConfig,
+    mailbox_id: UUID,
+    job_type: JobType,
+    attempts: int,
+    error: str,
+) -> None:
+    pause_until = datetime.now(UTC) + timedelta(seconds=max(1.0, config.mailbox_sync_pause_seconds))
+    reason = (
+        f"Auto-paused by sync circuit breaker after {attempts} failed {job_type.value} attempts"
+    )
+    session.execute(
+        text(
+            """
+            UPDATE mailboxes
+            SET ingestion_paused_until = :pause_until,
+                ingestion_pause_reason = :reason,
+                last_sync_error = :error,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": str(mailbox_id),
+            "pause_until": pause_until,
+            "reason": reason,
+            "error": error,
         },
     )
 

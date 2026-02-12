@@ -129,6 +129,40 @@ def get_mailbox_sync_status(
     )
 
 
+def resume_mailbox_ingestion(
+    *,
+    session: Session,
+    organization_id: UUID,
+    mailbox_id: UUID,
+) -> UUID | None:
+    mailbox = (
+        session.execute(
+            select(Mailbox)
+            .where(
+                Mailbox.organization_id == organization_id,
+                Mailbox.id == mailbox_id,
+            )
+            .with_for_update()
+        )
+        .scalars()
+        .first()
+    )
+    if mailbox is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mailbox not found")
+
+    mailbox.ingestion_paused_until = None
+    mailbox.ingestion_pause_reason = None
+    session.add(mailbox)
+    session.flush()
+
+    return enqueue_mailbox_history_sync(
+        session=session,
+        organization_id=organization_id,
+        mailbox_id=mailbox_id,
+        reason="manual_resume",
+    )
+
+
 def enqueue_mailbox_history_sync(
     *,
     session: Session,

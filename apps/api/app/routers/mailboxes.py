@@ -20,12 +20,14 @@ from app.schemas.mailboxes import (
     GmailOAuthStartResponse,
     MailboxOut,
     MailboxSyncEnqueueResponse,
+    MailboxSyncResumeResponse,
     MailboxSyncStatusResponse,
 )
 from app.services.mailbox_sync import (
     enqueue_mailbox_backfill,
     enqueue_mailbox_history_sync,
     get_mailbox_sync_status,
+    resume_mailbox_ingestion,
 )
 from app.services.mailboxes import (
     check_gmail_connectivity,
@@ -189,6 +191,25 @@ def mailbox_sync_status(
         sync_lag_seconds=status_view.sync_lag_seconds,
         queued_jobs_by_type=status_view.queued_jobs_by_type,
         running_jobs_by_type=status_view.running_jobs_by_type,
+    )
+
+
+@router.post("/{mailbox_id}/sync/resume", response_model=MailboxSyncResumeResponse)
+def mailbox_sync_resume(
+    mailbox_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> MailboxSyncResumeResponse:
+    job_id = resume_mailbox_ingestion(
+        session=session,
+        organization_id=org.organization.id,
+        mailbox_id=mailbox_id,
+    )
+    session.commit()
+    return MailboxSyncResumeResponse(
+        mailbox_id=mailbox_id,
+        resumed=True,
+        history_sync_job_id=job_id,
     )
 
 
