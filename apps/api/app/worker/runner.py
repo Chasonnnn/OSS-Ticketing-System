@@ -3,20 +3,23 @@ from __future__ import annotations
 import socket
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.db.session import get_sessionmaker
 from app.models.enums import JobStatus, JobType
 from app.worker.errors import PermanentJobError
 from app.worker.handlers import handle_job
+from app.worker.queue import enqueue_job
 
 
 @dataclass(frozen=True)
 class WorkerConfig:
     poll_interval_seconds: float = 0.5
+    history_poll_interval_seconds: float = 30.0
     worker_id: str = socket.gethostname()
 
 
@@ -28,7 +31,7 @@ def run_worker_forever(config: WorkerConfig) -> None:
 
 
 def run_one_job(*, config: WorkerConfig) -> bool:
-    session = SessionLocal()
+    session = get_sessionmaker()()
     try:
         job = _claim_next_job(session=session, worker_id=config.worker_id)
         if job is None:
@@ -45,6 +48,12 @@ def run_one_job(*, config: WorkerConfig) -> bool:
             _mark_failed(session=session, job_id=job_id, error=str(e), permanent=False)
         else:
             _mark_succeeded(session=session, job_id=job_id)
+            _schedule_follow_up_jobs(
+                session=session,
+                config=config,
+                job_type=job_type,
+                job=job,
+            )
 
         session.commit()
         return True
@@ -70,7 +79,7 @@ def _claim_next_job(*, session: Session, worker_id: str) -> dict | None:
             locked_by = :worker_id,
             updated_at = now()
         WHERE id IN (SELECT id FROM next_job)
-        RETURNING id, type, payload, attempts, max_attempts
+        RETURNING id, organization_id, mailbox_id, type, payload, attempts, max_attempts
         """
     )
     row = session.execute(sql, {"worker_id": worker_id}).mappings().fetchone()
@@ -148,4 +157,38 @@ def _mark_failed(*, session: Session, job_id: UUID, error: str, permanent: bool)
             "error": error,
             "backoff_seconds": backoff_seconds,
         },
+    )
+
+
+def _schedule_follow_up_jobs(
+    *,
+    session: Session,
+    config: WorkerConfig,
+    job_type: JobType,
+    job: dict,
+) -> None:
+    if job_type != JobType.mailbox_history_sync:
+        return
+
+    org_id_raw = job.get("organization_id")
+    mailbox_id_raw = job.get("mailbox_id")
+    if org_id_raw is None or mailbox_id_raw is None:
+        return
+
+    organization_id = UUID(str(org_id_raw))
+    mailbox_id = UUID(str(mailbox_id_raw))
+
+    run_at = datetime.now(UTC) + timedelta(seconds=max(1.0, config.history_poll_interval_seconds))
+    enqueue_job(
+        session=session,
+        job_type=JobType.mailbox_history_sync,
+        organization_id=organization_id,
+        mailbox_id=mailbox_id,
+        payload={
+            "organization_id": str(organization_id),
+            "mailbox_id": str(mailbox_id),
+            "reason": "poll_loop",
+        },
+        dedupe_key=f"mailbox_history_sync:{mailbox_id}",
+        run_at=run_at,
     )
