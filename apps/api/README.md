@@ -9,3 +9,7 @@ FastAPI + Postgres backend for the OSS Ticketing System.
 3. Log in:
    - `POST /auth/dev/login` with header `x-csrf-token: <csrf_token>`
 4. Use the returned `csrf_token` (and cookie) for future mutations.
+
+## Worker
+- Run the ingestion worker:
+  - `uv run -m app.worker`

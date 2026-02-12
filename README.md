@@ -45,9 +45,18 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
 2. In the Web UI (`/mailboxes`), click "Connect Gmail journal mailbox".
    - After Google redirects back, the API will redirect your browser to:
      - `/mailboxes/connected?mailbox_id=...`
+   - On successful connection, the API enqueues an initial `mailbox_backfill` sync job.
 3. Connectivity can be checked via:
    - UI button, or
    - `GET /mailboxes/{mailbox_id}/connectivity` (admin-only)
+
+## Ingestion Worker
+- Start the worker:
+  - `cd apps/api && uv run -m app.worker`
+- Sync flow:
+  - `mailbox_backfill` lists mailbox messages and upserts `message_occurrences`, then enqueues `occurrence_fetch_raw` jobs.
+  - `mailbox_history_sync` processes Gmail history deltas and enqueues `occurrence_fetch_raw` jobs for new message additions.
+  - If Gmail returns an invalid/expired `historyId`, the system enqueues a full `mailbox_backfill` recovery job.
 
 ## Tests
 - API:
