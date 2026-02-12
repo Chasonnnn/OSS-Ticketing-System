@@ -20,8 +20,13 @@ from app.schemas.mailboxes import (
     GmailOAuthStartResponse,
     MailboxOut,
     MailboxSyncEnqueueResponse,
+    MailboxSyncStatusResponse,
 )
-from app.services.mailbox_sync import enqueue_mailbox_backfill, enqueue_mailbox_history_sync
+from app.services.mailbox_sync import (
+    enqueue_mailbox_backfill,
+    enqueue_mailbox_history_sync,
+    get_mailbox_sync_status,
+)
 from app.services.mailboxes import (
     check_gmail_connectivity,
     complete_gmail_journal_oauth,
@@ -160,6 +165,31 @@ def mailbox_sync_history_enqueue(
     )
     session.commit()
     return MailboxSyncEnqueueResponse(job_type="mailbox_history_sync", job_id=job_id)
+
+
+@router.get("/{mailbox_id}/sync/status", response_model=MailboxSyncStatusResponse)
+def mailbox_sync_status(
+    mailbox_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> MailboxSyncStatusResponse:
+    status_view = get_mailbox_sync_status(
+        session=session,
+        organization_id=org.organization.id,
+        mailbox_id=mailbox_id,
+    )
+    return MailboxSyncStatusResponse(
+        mailbox_id=status_view.mailbox_id,
+        is_enabled=status_view.is_enabled,
+        paused_until=status_view.paused_until,
+        gmail_history_id=status_view.gmail_history_id,
+        last_full_sync_at=status_view.last_full_sync_at,
+        last_incremental_sync_at=status_view.last_incremental_sync_at,
+        last_sync_error=status_view.last_sync_error,
+        sync_lag_seconds=status_view.sync_lag_seconds,
+        queued_jobs_by_type=status_view.queued_jobs_by_type,
+        running_jobs_by_type=status_view.running_jobs_by_type,
+    )
 
 
 def _ensure_mailbox_exists(*, session: Session, organization_id: UUID, mailbox_id: UUID) -> None:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import httpx
+from fastapi import HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,20 @@ from app.services.google.gmail import (
 )
 from app.services.google.oauth import refresh_access_token
 from app.worker.queue import enqueue_job
+
+
+@dataclass(frozen=True)
+class MailboxSyncStatus:
+    mailbox_id: UUID
+    is_enabled: bool
+    paused_until: datetime | None
+    gmail_history_id: int | None
+    last_full_sync_at: datetime | None
+    last_incremental_sync_at: datetime | None
+    last_sync_error: str | None
+    sync_lag_seconds: int | None
+    queued_jobs_by_type: dict[str, int]
+    running_jobs_by_type: dict[str, int]
 
 
 def enqueue_mailbox_backfill(
@@ -41,6 +57,75 @@ def enqueue_mailbox_backfill(
             "reason": reason,
         },
         dedupe_key=f"mailbox_backfill:{mailbox_id}",
+    )
+
+
+def get_mailbox_sync_status(
+    *,
+    session: Session,
+    organization_id: UUID,
+    mailbox_id: UUID,
+) -> MailboxSyncStatus:
+    mailbox = (
+        session.execute(
+            select(Mailbox).where(
+                Mailbox.organization_id == organization_id,
+                Mailbox.id == mailbox_id,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if mailbox is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mailbox not found")
+
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT type, status, COUNT(*) AS c
+                FROM bg_jobs
+                WHERE organization_id = :organization_id
+                  AND mailbox_id = :mailbox_id
+                  AND status IN ('queued', 'running')
+                GROUP BY type, status
+                """
+            ),
+            {
+                "organization_id": str(organization_id),
+                "mailbox_id": str(mailbox_id),
+            },
+        )
+        .mappings()
+        .all()
+    )
+    queued_jobs_by_type: dict[str, int] = {}
+    running_jobs_by_type: dict[str, int] = {}
+    for row in rows:
+        job_type = str(row["type"])
+        count = int(row["c"])
+        if row["status"] == "queued":
+            queued_jobs_by_type[job_type] = count
+        elif row["status"] == "running":
+            running_jobs_by_type[job_type] = count
+
+    now = datetime.now(UTC)
+    sync_lag_seconds: int | None = None
+    if mailbox.last_incremental_sync_at is not None:
+        delta = now - mailbox.last_incremental_sync_at
+        sync_lag_seconds = max(0, int(delta.total_seconds()))
+
+    return MailboxSyncStatus(
+        mailbox_id=mailbox.id,
+        is_enabled=mailbox.is_enabled,
+        paused_until=mailbox.ingestion_paused_until,
+        gmail_history_id=mailbox.gmail_history_id,
+        last_full_sync_at=mailbox.last_full_sync_at,
+        last_incremental_sync_at=mailbox.last_incremental_sync_at,
+        last_sync_error=mailbox.last_sync_error,
+        sync_lag_seconds=sync_lag_seconds,
+        queued_jobs_by_type=queued_jobs_by_type,
+        running_jobs_by_type=running_jobs_by_type,
     )
 
 
