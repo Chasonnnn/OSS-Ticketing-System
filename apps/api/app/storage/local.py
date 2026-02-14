@@ -34,3 +34,14 @@ class LocalBlobStore(BlobStore):
             return path.read_bytes()
         except OSError as e:
             raise BlobStoreError(str(e)) from e
+
+    def get_download_url(
+        self,
+        *,
+        key: str,
+        expires_in_seconds: int,
+        filename: str | None,
+        content_type: str | None,
+    ) -> str | None:
+        _ = key, expires_in_seconds, filename, content_type
+        return None

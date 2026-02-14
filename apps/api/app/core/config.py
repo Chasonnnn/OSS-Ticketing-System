@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "tickets-blobs"
     BLOB_STORE: str = "s3"  # "s3" or "local"
     LOCAL_BLOB_DIR: str = "var/blobs"
+    ATTACHMENT_DOWNLOAD_URL_TTL_SECONDS: int = 300
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

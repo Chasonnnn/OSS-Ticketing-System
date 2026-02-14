@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -45,3 +46,39 @@ class S3BlobStore(BlobStore):
             return bytes(body)
         except (BotoCoreError, ClientError) as e:
             raise BlobStoreError(str(e)) from e
+
+    def get_download_url(
+        self,
+        *,
+        key: str,
+        expires_in_seconds: int,
+        filename: str | None,
+        content_type: str | None,
+    ) -> str | None:
+        params: dict[str, str] = {"Bucket": self._bucket, "Key": key}
+        if content_type:
+            params["ResponseContentType"] = content_type
+        if filename:
+            params["ResponseContentDisposition"] = _build_attachment_disposition(filename)
+
+        try:
+            return self._client.generate_presigned_url(
+                ClientMethod="get_object",
+                Params=params,
+                ExpiresIn=expires_in_seconds,
+            )
+        except (BotoCoreError, ClientError) as e:
+            raise BlobStoreError(str(e)) from e
+
+
+def _build_attachment_disposition(filename: str) -> str:
+    ascii_name = (
+        filename.encode("ascii", "ignore")
+        .decode("ascii")
+        .replace("\\", "_")
+        .replace('"', "'")
+    )
+    if not ascii_name:
+        ascii_name = "attachment"
+    utf8_name = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
