@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import OrgContext, require_csrf_header, require_roles
@@ -17,7 +18,11 @@ from app.schemas.tickets import (
     TicketUpdateRequest,
 )
 from app.services.ticket_commands import create_ticket_note, update_ticket
-from app.services.ticket_views import get_ticket_detail, list_tickets
+from app.services.ticket_views import (
+    get_ticket_attachment_download,
+    get_ticket_detail,
+    list_tickets,
+)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"], dependencies=[Depends(require_csrf_header)])
 
@@ -66,6 +71,34 @@ def ticket_detail(
         messages=detail.messages,
         events=detail.events,
         notes=detail.notes,
+    )
+
+
+@router.get("/{ticket_id}/attachments/{attachment_id}/download")
+def ticket_attachment_download(
+    ticket_id: UUID,
+    attachment_id: UUID,
+    org: OrgContext = Depends(
+        require_roles([MembershipRole.admin, MembershipRole.agent, MembershipRole.viewer])
+    ),
+    session: Session = Depends(get_session),
+) -> Response:
+    download = get_ticket_attachment_download(
+        session=session,
+        organization_id=org.organization.id,
+        ticket_id=ticket_id,
+        attachment_id=attachment_id,
+    )
+    if download.redirect_url:
+        return RedirectResponse(
+            url=download.redirect_url,
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+    assert download.bytes_data is not None
+    return Response(
+        content=download.bytes_data,
+        media_type=download.content_type,
+        headers={"content-disposition": download.content_disposition},
     )
 
 

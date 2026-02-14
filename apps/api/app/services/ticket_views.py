@@ -4,13 +4,17 @@ import base64
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import Text, and_, cast, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.tickets import Ticket
+from app.storage.base import BlobStoreError
+from app.storage.factory import build_blob_store
 
 
 @dataclass(frozen=True)
@@ -25,6 +29,14 @@ class TicketDetailView:
     messages: list[dict]
     events: list[dict]
     notes: list[dict]
+
+
+@dataclass(frozen=True)
+class TicketAttachmentDownload:
+    bytes_data: bytes | None
+    content_type: str
+    content_disposition: str
+    redirect_url: str | None
 
 
 def list_tickets(
@@ -383,6 +395,90 @@ def get_ticket_detail(
     )
 
 
+def get_ticket_attachment_download(
+    *,
+    session: Session,
+    organization_id: UUID,
+    ticket_id: UUID,
+    attachment_id: UUID,
+) -> TicketAttachmentDownload:
+    row = (
+        session.execute(
+            text(
+                """
+                SELECT
+                  ma.filename,
+                  ma.content_type AS attachment_content_type,
+                  b.content_type AS blob_content_type,
+                  b.storage_key
+                FROM message_attachments ma
+                JOIN blobs b
+                  ON b.id = ma.blob_id
+                 AND b.organization_id = ma.organization_id
+                JOIN ticket_messages tm
+                  ON tm.organization_id = ma.organization_id
+                 AND tm.message_id = ma.message_id
+                WHERE ma.organization_id = :organization_id
+                  AND tm.ticket_id = :ticket_id
+                  AND ma.id = :attachment_id
+                LIMIT 1
+                """
+            ),
+            {
+                "organization_id": str(organization_id),
+                "ticket_id": str(ticket_id),
+                "attachment_id": str(attachment_id),
+            },
+        )
+        .mappings()
+        .fetchone()
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+
+    filename = _safe_download_filename(
+        raw_filename=row["filename"],
+        fallback=f"attachment-{attachment_id}",
+    )
+    content_type = (
+        row["attachment_content_type"]
+        or row["blob_content_type"]
+        or "application/octet-stream"
+    )
+    disposition = _build_attachment_disposition(filename)
+
+    blob_store = build_blob_store()
+    settings = get_settings()
+    signed_url = blob_store.get_download_url(
+        key=str(row["storage_key"]),
+        expires_in_seconds=settings.ATTACHMENT_DOWNLOAD_URL_TTL_SECONDS,
+        filename=filename,
+        content_type=content_type,
+    )
+    if signed_url:
+        return TicketAttachmentDownload(
+            bytes_data=None,
+            content_type=content_type,
+            content_disposition=disposition,
+            redirect_url=signed_url,
+        )
+
+    try:
+        payload = blob_store.get_bytes(key=str(row["storage_key"]))
+    except BlobStoreError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Attachment blob unavailable",
+        ) from exc
+
+    return TicketAttachmentDownload(
+        bytes_data=payload,
+        content_type=content_type,
+        content_disposition=disposition,
+        redirect_url=None,
+    )
+
+
 def _encode_cursor(*, sort_ts: datetime, row_id: UUID) -> str:
     payload = {
         "sort_ts": sort_ts.astimezone(UTC).isoformat(),
@@ -423,3 +519,23 @@ def _coerce_text_array(value: object) -> list[str]:
             return [part.strip().strip('"') for part in inner.split(",") if part.strip()]
         return [raw]
     return [str(value)]
+
+
+def _safe_download_filename(*, raw_filename: str | None, fallback: str) -> str:
+    base = (raw_filename or "").replace("\r", "").replace("\n", "").strip()
+    if not base:
+        return fallback
+    return base
+
+
+def _build_attachment_disposition(filename: str) -> str:
+    ascii_name = (
+        filename.encode("ascii", "ignore")
+        .decode("ascii")
+        .replace("\\", "_")
+        .replace('"', "'")
+    )
+    if not ascii_name:
+        ascii_name = "attachment"
+    utf8_name = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
