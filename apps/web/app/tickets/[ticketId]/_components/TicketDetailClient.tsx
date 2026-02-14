@@ -1,12 +1,16 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
+import { FormEvent, useState } from "react"
 
 import { Badge } from "../../../../components/ui/badge"
+import { Button } from "../../../../components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card"
+import { Input } from "../../../../components/ui/input"
 import { Spinner } from "../../../../components/ui/spinner"
 import { ApiError, apiFetchJson } from "../../../../lib/api/client"
+import { fetchCsrfToken } from "../../../../lib/api/csrf"
 import { ticketStatusTone } from "../../../../lib/tickets"
 
 type MeResponse = {
@@ -98,6 +102,13 @@ type TicketDetailResponse = {
   notes: TicketNote[]
 }
 
+type QueueOut = {
+  id: string
+  name: string
+  slug: string
+  created_at: string
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "n/a"
   const dt = new Date(value)
@@ -106,6 +117,12 @@ function formatDate(value: string | null): string {
 }
 
 export function TicketDetailClient({ ticketId }: { ticketId: string }) {
+  const qc = useQueryClient()
+  const [assignmentMode, setAssignmentMode] = useState<"keep" | "clear" | "queue">("keep")
+  const [controlError, setControlError] = useState<string | null>(null)
+  const [noteBody, setNoteBody] = useState("")
+  const [noteError, setNoteError] = useState<string | null>(null)
+
   const me = useQuery({
     queryKey: ["me"],
     queryFn: async (): Promise<MeResponse | null> => {
@@ -125,6 +142,73 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
       apiFetchJson<TicketDetailResponse>(`/tickets/${ticketId}`),
     enabled: !!me.data,
     retry: false
+  })
+
+  const queues = useQuery({
+    queryKey: ["queues"],
+    queryFn: async (): Promise<QueueOut[]> => apiFetchJson<QueueOut[]>("/queues"),
+    enabled: !!me.data,
+    retry: false
+  })
+
+  const updateTicket = useMutation({
+    mutationFn: async ({
+      status,
+      priority,
+      assignmentMode,
+      queueId
+    }: {
+      status: string
+      priority: string
+      assignmentMode: "keep" | "clear" | "queue"
+      queueId?: string
+    }) => {
+      const csrf = await fetchCsrfToken()
+      const payload: Record<string, string | null> = {
+        status,
+        priority
+      }
+      if (assignmentMode === "clear") {
+        payload.assignee_queue_id = null
+      } else if (assignmentMode === "queue") {
+        payload.assignee_queue_id = queueId ?? null
+      }
+      return apiFetchJson(`/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify(payload)
+      })
+    },
+    onSuccess: async () => {
+      setControlError(null)
+      await qc.invalidateQueries({ queryKey: ["ticket", ticketId] })
+      await qc.invalidateQueries({ queryKey: ["tickets"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setControlError(error.detail)
+      else setControlError("Failed to update ticket")
+    }
+  })
+
+  const createNote = useMutation({
+    mutationFn: async (bodyMarkdown: string) => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson(`/tickets/${ticketId}/notes`, {
+        method: "POST",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify({ body_markdown: bodyMarkdown })
+      })
+    },
+    onSuccess: async () => {
+      setNoteError(null)
+      setNoteBody("")
+      await qc.invalidateQueries({ queryKey: ["ticket", ticketId] })
+      await qc.invalidateQueries({ queryKey: ["tickets"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setNoteError(error.detail)
+      else setNoteError("Failed to create note")
+    }
   })
 
   if (me.isLoading) {
@@ -203,6 +287,44 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
   const data = detail.data
   if (!data) return null
 
+  const currentAssignee = data.ticket.assignee_queue_id
+    ? `queue:${data.ticket.assignee_queue_id}`
+    : data.ticket.assignee_user_id
+      ? `user:${data.ticket.assignee_user_id}`
+      : "unassigned"
+
+  const handleUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const nextStatus = String(form.get("status") ?? "")
+    const nextPriority = String(form.get("priority") ?? "")
+    const nextQueue = String(form.get("assignee_queue_id") ?? "")
+    if (!nextStatus || !nextPriority) {
+      setControlError("Status and priority are required")
+      return
+    }
+    if (assignmentMode === "queue" && !nextQueue) {
+      setControlError("Select a queue when assignment mode is queue")
+      return
+    }
+    updateTicket.mutate({
+      status: nextStatus,
+      priority: nextPriority,
+      assignmentMode,
+      queueId: nextQueue || undefined
+    })
+  }
+
+  const handleCreateNote = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmed = noteBody.trim()
+    if (!trimmed) {
+      setNoteError("Note body cannot be empty")
+      return
+    }
+    createNote.mutate(trimmed)
+  }
+
   return (
     <div className="grid gap-4">
       <Card>
@@ -217,6 +339,90 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
             {formatDate(data.ticket.last_activity_at || data.ticket.updated_at)}
           </CardDescription>
         </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ticket Controls</CardTitle>
+          <CardDescription>Update workflow state and assignment.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-3 text-sm text-neutral-600">Current assignee: {currentAssignee}</div>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleUpdateSubmit}>
+            <label className="grid gap-1 text-sm text-neutral-800">
+              <span>Status</span>
+              <select
+                name="status"
+                defaultValue={data.ticket.status}
+                className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+              >
+                <option value="new">new</option>
+                <option value="open">open</option>
+                <option value="pending">pending</option>
+                <option value="resolved">resolved</option>
+                <option value="closed">closed</option>
+                <option value="spam">spam</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm text-neutral-800">
+              <span>Priority</span>
+              <select
+                name="priority"
+                defaultValue={data.ticket.priority}
+                className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+              >
+                <option value="low">low</option>
+                <option value="normal">normal</option>
+                <option value="high">high</option>
+                <option value="urgent">urgent</option>
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-sm text-neutral-800 md:col-span-2">
+              <span>Assignment Mode</span>
+              <select
+                value={assignmentMode}
+                onChange={(event) => setAssignmentMode(event.target.value as "keep" | "clear" | "queue")}
+                className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+              >
+                <option value="keep">Keep current assignee</option>
+                <option value="clear">Clear assignee</option>
+                <option value="queue">Assign to queue</option>
+              </select>
+            </label>
+
+            {assignmentMode === "queue" ? (
+              <label className="grid gap-1 text-sm text-neutral-800 md:col-span-2">
+                <span>Queue</span>
+                <select
+                  name="assignee_queue_id"
+                  defaultValue={data.ticket.assignee_queue_id ?? ""}
+                  className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+                >
+                  <option value="">Select queue…</option>
+                  {(queues.data ?? []).map((queue) => (
+                    <option key={queue.id} value={queue.id}>
+                      {queue.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {controlError ? <div className="text-sm text-red-700 md:col-span-2">{controlError}</div> : null}
+            <div className="md:col-span-2">
+              <Button type="submit" disabled={updateTicket.isPending || queues.isLoading}>
+                {updateTicket.isPending ? (
+                  <>
+                    <Spinner /> Saving…
+                  </>
+                ) : (
+                  "Save changes"
+                )}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
       </Card>
 
       <Card>
@@ -320,12 +526,35 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Internal Notes</CardTitle>
-            <CardDescription>{data.notes.length} note(s)</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {data.notes.length === 0 ? <div className="text-sm text-neutral-600">No internal notes yet.</div> : null}
+        <CardHeader>
+          <CardTitle>Internal Notes</CardTitle>
+          <CardDescription>{data.notes.length} note(s)</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <form className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3" onSubmit={handleCreateNote}>
+            <label className="text-sm font-medium text-neutral-900" htmlFor="note-body">
+              Add internal note
+            </label>
+            <Input
+              id="note-body"
+              value={noteBody}
+              onChange={(event) => setNoteBody(event.target.value)}
+              placeholder="Write an internal note (not sent to customer)"
+            />
+            {noteError ? <div className="text-sm text-red-700">{noteError}</div> : null}
+            <div>
+              <Button type="submit" disabled={createNote.isPending}>
+                {createNote.isPending ? (
+                  <>
+                    <Spinner /> Posting…
+                  </>
+                ) : (
+                  "Add note"
+                )}
+              </Button>
+            </div>
+          </form>
+          {data.notes.length === 0 ? <div className="text-sm text-neutral-600">No internal notes yet.</div> : null}
             {data.notes.map((note) => (
               <div key={note.id} className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
                 <div className="text-xs text-neutral-600">{formatDate(note.created_at)}</div>
