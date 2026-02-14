@@ -56,13 +56,36 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
 - Sync flow:
   - `mailbox_backfill` lists mailbox messages and upserts `message_occurrences`, then enqueues `occurrence_fetch_raw` jobs.
   - `mailbox_history_sync` processes Gmail history deltas and enqueues `occurrence_fetch_raw` jobs for new message additions.
+  - `occurrence_fetch_raw` stores RFC822 bytes in blob storage and enqueues `occurrence_parse`.
+  - `occurrence_parse` builds canonical message/content records, resolves recipient evidence, and enqueues `occurrence_stitch`.
+  - `occurrence_stitch` links or creates a ticket, then enqueues `ticket_apply_routing`.
+  - `ticket_apply_routing` applies recipient allowlist + routing rules and marks the occurrence as routed.
   - If Gmail returns an invalid/expired `historyId`, the system enqueues a full `mailbox_backfill` recovery job.
   - Repeated mailbox sync failures trip a circuit breaker that auto-pauses ingestion for that mailbox.
+- Recipient evidence precedence:
+  - `X-Gm-Original-To` -> `workspace_header` (`high`)
+  - `Delivered-To` -> `delivered_to` (`medium`)
+  - `X-Original-To` -> `x_original_to` (`medium`)
+  - `To`/`Cc` fallback -> `to_cc_scan` (`low`)
+  - Unknown recipient stays `unknown` (`low`) and is treated as non-allowlisted in routing.
 - Admin sync controls:
   - `POST /mailboxes/{mailbox_id}/sync/backfill`
   - `POST /mailboxes/{mailbox_id}/sync/history`
   - `GET /mailboxes/{mailbox_id}/sync/status`
   - `POST /mailboxes/{mailbox_id}/sync/resume` (clears pause and queues history sync)
+
+## Ticket APIs
+- List/search tickets (cursor pagination):
+  - `GET /tickets?limit=20&cursor=...&status=open&q=refund&assignee_user_id=...&assignee_queue_id=...`
+- Ticket detail:
+  - `GET /tickets/{ticket_id}`
+  - Includes ticket record, stitched thread messages, attachments metadata, events, notes, and per-message routing evidence from `message_occurrences`.
+
+## Ticket UI
+- Inbox:
+  - `http://localhost:3000/tickets`
+- Ticket detail:
+  - `http://localhost:3000/tickets/{ticket_id}`
 
 ## Tests
 - API:
