@@ -22,6 +22,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   OSS Ticketing
                 </Link>
                 <nav className="flex items-center gap-4 text-sm text-neutral-700">
+                  <Link href="/tickets" className="hover:text-neutral-900">
+                    Tickets
+                  </Link>
                   <Link href="/mailboxes" className="hover:text-neutral-900">
                     Mailboxes
                   </Link>

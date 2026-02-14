@@ -19,8 +19,14 @@ export default function HomePage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link
-            href="/mailboxes"
+            href="/tickets"
             className="inline-flex h-10 items-center justify-center rounded-lg bg-neutral-900 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:bg-neutral-950"
+          >
+            Open Inbox
+          </Link>
+          <Link
+            href="/mailboxes"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-white px-4 text-sm font-medium text-neutral-900 shadow-sm ring-1 ring-neutral-200 transition hover:bg-neutral-50 active:bg-neutral-100"
           >
             Open Mailboxes
           </Link>
