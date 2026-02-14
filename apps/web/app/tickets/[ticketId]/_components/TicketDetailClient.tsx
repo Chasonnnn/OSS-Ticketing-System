@@ -11,6 +11,7 @@ import { Input } from "../../../../components/ui/input"
 import { Spinner } from "../../../../components/ui/spinner"
 import { ApiError, apiFetchJson } from "../../../../lib/api/client"
 import { fetchCsrfToken } from "../../../../lib/api/csrf"
+import { buildApiUrl } from "../../../../lib/api/url"
 import { ticketStatusTone } from "../../../../lib/tickets"
 
 type MeResponse = {
@@ -458,7 +459,15 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
                   <ul className="mt-1 list-disc pl-5 text-sm text-neutral-700">
                     {message.attachments.map((attachment) => (
                       <li key={attachment.id}>
-                        {attachment.filename || "(unnamed)"} · {attachment.size_bytes} bytes
+                        <a
+                          href={buildApiUrl(
+                            `/tickets/${ticketId}/attachments/${attachment.id}/download`
+                          )}
+                          className="underline decoration-neutral-400 underline-offset-2 transition hover:text-neutral-900"
+                        >
+                          {attachment.filename || "(unnamed)"}
+                        </a>{" "}
+                        · {attachment.size_bytes} bytes
                       </li>
                     ))}
                   </ul>
