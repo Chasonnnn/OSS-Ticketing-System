@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models.enums import MessageDirection, OccurrenceState
+from app.models.enums import JobType, MessageDirection, OccurrenceState
 from app.services.ingest.dedupe import (
     compute_attachment_sha256,
     compute_fingerprint_v1,
@@ -13,7 +13,9 @@ from app.services.ingest.dedupe import (
     extract_uuid_header,
 )
 from app.services.ingest.parser import parse_raw_email
+from app.services.ingest.recipient import resolve_original_recipient
 from app.storage.factory import build_blob_store
+from app.worker.queue import enqueue_job
 
 
 def occurrence_parse(*, session: Session, payload: dict) -> None:
@@ -23,7 +25,7 @@ def occurrence_parse(*, session: Session, payload: dict) -> None:
         session.execute(
             text(
                 """
-            SELECT id, organization_id, state, raw_blob_id, message_id
+            SELECT id, organization_id, mailbox_id, state, raw_blob_id, message_id
             FROM message_occurrences
             WHERE id = :id
             FOR UPDATE
@@ -127,6 +129,11 @@ def occurrence_parse(*, session: Session, payload: dict) -> None:
         attachments=parsed.attachments,
         attachment_sha256=attachment_sha,
     )
+    recipient = resolve_original_recipient(
+        headers_json=parsed.headers_json,
+        to_emails=parsed.to_emails,
+        cc_emails=parsed.cc_emails,
+    )
 
     session.execute(
         text(
@@ -135,6 +142,10 @@ def occurrence_parse(*, session: Session, payload: dict) -> None:
             SET message_id = :message_id,
                 parsed_at = now(),
                 parse_error = NULL,
+                original_recipient = :original_recipient,
+                original_recipient_source = :original_recipient_source,
+                original_recipient_confidence = :original_recipient_confidence,
+                original_recipient_evidence = CAST(:original_recipient_evidence AS jsonb),
                 state = :state,
                 updated_at = now()
             WHERE id = :id
@@ -143,8 +154,21 @@ def occurrence_parse(*, session: Session, payload: dict) -> None:
         {
             "id": str(occurrence_id),
             "message_id": str(message_id),
+            "original_recipient": recipient.recipient,
+            "original_recipient_source": recipient.source.value,
+            "original_recipient_confidence": recipient.confidence.value,
+            "original_recipient_evidence": _json_dumps(recipient.evidence),
             "state": OccurrenceState.parsed.value,
         },
+    )
+
+    enqueue_job(
+        session=session,
+        job_type=JobType.occurrence_stitch,
+        organization_id=org_id,
+        mailbox_id=UUID(str(occ["mailbox_id"])),
+        payload={"occurrence_id": str(occurrence_id)},
+        dedupe_key=f"occurrence_stitch:{occurrence_id}",
     )
 
 
