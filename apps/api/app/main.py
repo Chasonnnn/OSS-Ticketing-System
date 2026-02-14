@@ -9,6 +9,7 @@ from app.routers.health import router as health_router
 from app.routers.mailboxes import router as mailboxes_router
 from app.routers.me import router as me_router
 from app.routers.queues import router as queues_router
+from app.routers.tickets import router as tickets_router
 
 
 def create_app() -> FastAPI:
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(me_router)
     app.include_router(queues_router)
+    app.include_router(tickets_router)
     app.include_router(mailboxes_router)
     return app
 
