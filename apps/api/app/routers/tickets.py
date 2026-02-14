@@ -87,7 +87,11 @@ def ticket_update(
     return TicketOut(**updated)
 
 
-@router.post("/{ticket_id}/notes", response_model=TicketNoteOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{ticket_id}/notes",
+    response_model=TicketNoteOut,
+    status_code=status.HTTP_201_CREATED,
+)
 def ticket_note_create(
     ticket_id: UUID,
     payload: TicketNoteCreateRequest,
