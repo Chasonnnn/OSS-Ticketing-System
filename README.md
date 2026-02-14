@@ -80,6 +80,9 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
 - Ticket detail:
   - `GET /tickets/{ticket_id}`
   - Includes ticket record, stitched thread messages, attachments metadata, events, notes, and per-message routing evidence from `message_occurrences`.
+- Attachment download (org-scoped):
+  - `GET /tickets/{ticket_id}/attachments/{attachment_id}/download`
+  - Returns authenticated, org-scoped downloads; on S3/MinIO storage it issues a short-lived signed redirect URL.
 
 ## Ticket UI
 - Inbox:

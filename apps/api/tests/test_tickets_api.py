@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.main import create_app
 from app.models.enums import (
     BlobKind,
@@ -31,6 +32,7 @@ from app.models.mail import (
     OAuthCredential,
 )
 from app.models.tickets import Ticket, TicketEvent, TicketMessage, TicketNote
+from app.storage.factory import build_blob_store
 
 
 def _get_csrf(client: TestClient) -> str:
@@ -347,6 +349,214 @@ def test_ticket_detail_returns_thread_events_notes_and_is_org_scoped(db_session:
 
     hidden = client_two.get(f"/tickets/{ticket.id}")
     assert hidden.status_code == 404
+
+
+def test_ticket_attachment_download_is_org_scoped(
+    db_session: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    blob_dir = tmp_path / "blobs"
+    monkeypatch.setenv("BLOB_STORE", "local")
+    monkeypatch.setenv("LOCAL_BLOB_DIR", str(blob_dir))
+    get_settings.cache_clear()
+
+    try:
+        app = create_app()
+        client_one = TestClient(app)
+        client_two = TestClient(app)
+
+        login_one = _dev_login(
+            client_one,
+            email="agent-attach-one@example.com",
+            organization_name="Org Ticket Attach One",
+        )
+        _dev_login(
+            client_two,
+            email="agent-attach-two@example.com",
+            organization_name="Org Ticket Attach Two",
+        )
+
+        org_one, _user_one = _load_org_and_user(db_session, login_payload=login_one)
+        now = datetime.now(UTC)
+        blob_bytes = b"attachment-bytes-123"
+        storage_key = f"{org_one.id}/attachments/report.pdf"
+        build_blob_store().put_bytes(
+            key=storage_key,
+            data=blob_bytes,
+            content_type="application/pdf",
+        )
+
+        ticket = Ticket(
+            organization_id=org_one.id,
+            ticket_code="tkt-attachment",
+            status=TicketStatus.open,
+            priority=TicketPriority.normal,
+            subject="Attachment access",
+            requester_email="requester@example.com",
+            first_message_at=now,
+            last_message_at=now,
+            last_activity_at=now,
+        )
+        db_session.add(ticket)
+        db_session.flush()
+
+        message = Message(
+            organization_id=org_one.id,
+            direction=MessageDirection.inbound,
+            rfc_message_id="<attachment@acme.test>",
+            fingerprint_v1=b"f" * 32,
+            signature_v1=b"s" * 32,
+        )
+        db_session.add(message)
+        db_session.flush()
+
+        blob = Blob(
+            organization_id=org_one.id,
+            kind=BlobKind.attachment,
+            sha256=b"b" * 32,
+            size_bytes=len(blob_bytes),
+            storage_key=storage_key,
+            content_type="application/pdf",
+        )
+        db_session.add(blob)
+        db_session.flush()
+
+        attachment = MessageAttachment(
+            organization_id=org_one.id,
+            message_id=message.id,
+            blob_id=blob.id,
+            filename="report.pdf",
+            content_type="application/pdf",
+            size_bytes=len(blob_bytes),
+            sha256=b"a" * 32,
+            is_inline=False,
+            content_id=None,
+        )
+        db_session.add(attachment)
+        db_session.add(
+            TicketMessage(
+                organization_id=org_one.id,
+                ticket_id=ticket.id,
+                message_id=message.id,
+                stitch_reason="new_ticket",
+                stitch_confidence=RoutingConfidence.low,
+            )
+        )
+        db_session.commit()
+
+        allowed = client_one.get(
+            f"/tickets/{ticket.id}/attachments/{attachment.id}/download",
+        )
+        assert allowed.status_code == 200
+        assert allowed.content == blob_bytes
+        assert allowed.headers["content-type"] == "application/pdf"
+        assert "report.pdf" in allowed.headers["content-disposition"]
+
+        denied = client_two.get(
+            f"/tickets/{ticket.id}/attachments/{attachment.id}/download",
+        )
+        assert denied.status_code == 404
+    finally:
+        get_settings.cache_clear()
+
+
+def test_ticket_attachment_download_redirects_to_signed_url_when_supported(
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    app = create_app()
+    client = TestClient(app)
+
+    login = _dev_login(
+        client,
+        email="agent-attach-signed@example.com",
+        organization_name="Org Ticket Attach Signed",
+    )
+    org, _user = _load_org_and_user(db_session, login_payload=login)
+    now = datetime.now(UTC)
+
+    ticket = Ticket(
+        organization_id=org.id,
+        ticket_code="tkt-attachment-signed",
+        status=TicketStatus.open,
+        priority=TicketPriority.normal,
+        subject="Attachment signed link",
+        requester_email="requester@example.com",
+        first_message_at=now,
+        last_message_at=now,
+        last_activity_at=now,
+    )
+    db_session.add(ticket)
+    db_session.flush()
+
+    message = Message(
+        organization_id=org.id,
+        direction=MessageDirection.inbound,
+        rfc_message_id="<attachment-signed@acme.test>",
+        fingerprint_v1=b"f" * 32,
+        signature_v1=b"s" * 32,
+    )
+    db_session.add(message)
+    db_session.flush()
+
+    blob = Blob(
+        organization_id=org.id,
+        kind=BlobKind.attachment,
+        sha256=b"b" * 32,
+        size_bytes=10,
+        storage_key=f"{org.id}/attachments/report-signed.pdf",
+        content_type="application/pdf",
+    )
+    db_session.add(blob)
+    db_session.flush()
+
+    attachment = MessageAttachment(
+        organization_id=org.id,
+        message_id=message.id,
+        blob_id=blob.id,
+        filename="report-signed.pdf",
+        content_type="application/pdf",
+        size_bytes=10,
+        sha256=b"a" * 32,
+        is_inline=False,
+        content_id=None,
+    )
+    db_session.add(attachment)
+    db_session.add(
+        TicketMessage(
+            organization_id=org.id,
+            ticket_id=ticket.id,
+            message_id=message.id,
+            stitch_reason="new_ticket",
+            stitch_confidence=RoutingConfidence.low,
+        )
+    )
+    db_session.commit()
+
+    class _SignedStore:
+        def get_download_url(
+            self,
+            *,
+            key: str,
+            expires_in_seconds: int,
+            filename: str | None,
+            content_type: str | None,
+        ) -> str | None:
+            _ = key, expires_in_seconds, filename, content_type
+            return "https://files.example.test/download/presigned-token"
+
+        def get_bytes(self, *, key: str) -> bytes:
+            raise AssertionError(f"get_bytes should not be called for signed redirects ({key})")
+
+    monkeypatch.setattr("app.services.ticket_views.build_blob_store", lambda: _SignedStore())
+
+    res = client.get(
+        f"/tickets/{ticket.id}/attachments/{attachment.id}/download",
+        follow_redirects=False,
+    )
+    assert res.status_code == 307
+    assert res.headers["location"] == "https://files.example.test/download/presigned-token"
 
 
 def test_ticket_update_and_note_create(db_session: Session) -> None:

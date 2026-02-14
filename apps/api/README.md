@@ -39,3 +39,6 @@ FastAPI + Postgres backend for the OSS Ticketing System.
 - Ticket detail:
   - `GET /tickets/{ticket_id}`
   - Returns ticket data + thread messages + message attachment metadata + ticket events + notes + routing evidence from occurrences.
+- Attachment download:
+  - `GET /tickets/{ticket_id}/attachments/{attachment_id}/download`
+  - Returns authenticated org-scoped downloads and uses short-lived signed redirects when blob storage supports presigned URLs.
