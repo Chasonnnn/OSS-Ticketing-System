@@ -45,6 +45,19 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
 
+    REQUEST_ID_HEADER: str = "x-request-id"
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 120
+    CONTENT_SECURITY_POLICY: str = (
+        "default-src 'self'; "
+        "img-src 'self' data: cid:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+
     @field_validator("COOKIE_DOMAIN", mode="before")
     @classmethod
     def _empty_cookie_domain_to_none(cls, v: object) -> object:
