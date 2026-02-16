@@ -39,9 +39,7 @@ def update_ticket(
             detail="priority cannot be null",
         )
 
-    assignment_keys = [
-        key for key in ("assignee_user_id", "assignee_queue_id") if key in updates
-    ]
+    assignment_keys = [key for key in ("assignee_user_id", "assignee_queue_id") if key in updates]
     if len(assignment_keys) > 1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

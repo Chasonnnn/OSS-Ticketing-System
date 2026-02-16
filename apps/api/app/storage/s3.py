@@ -73,10 +73,7 @@ class S3BlobStore(BlobStore):
 
 def _build_attachment_disposition(filename: str) -> str:
     ascii_name = (
-        filename.encode("ascii", "ignore")
-        .decode("ascii")
-        .replace("\\", "_")
-        .replace('"', "'")
+        filename.encode("ascii", "ignore").decode("ascii").replace("\\", "_").replace('"', "'")
     )
     if not ascii_name:
         ascii_name = "attachment"
