@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Link href="/mailboxes" className="hover:text-neutral-900">
                     Mailboxes
                   </Link>
+                  <Link href="/ops" className="hover:text-neutral-900">
+                    Ops
+                  </Link>
                 </nav>
               </div>
             </header>

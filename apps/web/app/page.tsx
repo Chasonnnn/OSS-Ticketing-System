@@ -30,6 +30,12 @@ export default function HomePage() {
           >
             Open Mailboxes
           </Link>
+          <Link
+            href="/ops"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-white px-4 text-sm font-medium text-neutral-900 shadow-sm ring-1 ring-neutral-200 transition hover:bg-neutral-50 active:bg-neutral-100"
+          >
+            Open Ops
+          </Link>
           <div className="text-sm text-neutral-600">
             Use dev login to create a session, then connect the journal mailbox via OAuth.
           </div>
