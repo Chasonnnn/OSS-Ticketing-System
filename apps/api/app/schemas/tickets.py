@@ -80,6 +80,7 @@ class TicketOccurrenceOut(BaseModel):
 
 class TicketThreadMessageOut(BaseModel):
     message_id: UUID
+    collision_group_id: UUID | None
     stitched_at: datetime
     stitch_reason: str
     stitch_confidence: str
@@ -130,3 +131,71 @@ class TicketUpdateRequest(BaseModel):
 
 class TicketNoteCreateRequest(BaseModel):
     body_markdown: str = Field(min_length=1, max_length=20000)
+
+
+class SendIdentityOut(BaseModel):
+    id: UUID
+    mailbox_id: UUID
+    from_email: str
+    from_name: str | None
+    status: str
+    is_enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class TicketReplyRequest(BaseModel):
+    send_identity_id: UUID
+    to_emails: list[str] = Field(min_length=1, max_length=50)
+    cc_emails: list[str] = Field(default_factory=list, max_length=50)
+    subject: str = Field(min_length=1, max_length=998)
+    body_text: str = Field(min_length=1, max_length=100000)
+
+
+class TicketReplyResponse(BaseModel):
+    status: str
+    job_id: UUID
+    message_id: UUID
+    oss_message_id: UUID
+
+
+class TicketSavedViewCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    filters: dict[str, Any] = Field(default_factory=dict)
+
+
+class TicketSavedViewOut(BaseModel):
+    id: UUID
+    name: str
+    filters: dict[str, Any]
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class RoutingSimulationRequest(BaseModel):
+    recipient: str = Field(min_length=3, max_length=320)
+    sender_email: str = Field(min_length=3, max_length=320)
+    direction: str = Field(min_length=3, max_length=20)
+
+
+class RoutingSimulationMatchedRule(BaseModel):
+    id: UUID
+    name: str
+    priority: int
+
+
+class RoutingSimulationAppliedActions(BaseModel):
+    assign_queue_id: UUID | None = None
+    assign_user_id: UUID | None = None
+    set_status: str | None = None
+    drop: bool = False
+    auto_close: bool = False
+
+
+class RoutingSimulationResponse(BaseModel):
+    allowlisted: bool
+    would_mark_spam: bool
+    matched_rule: RoutingSimulationMatchedRule | None
+    applied_actions: RoutingSimulationAppliedActions
+    explanation: str

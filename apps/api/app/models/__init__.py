@@ -44,5 +44,6 @@ from app.models.tickets import (  # noqa: F401
     TicketEvent,
     TicketMessage,
     TicketNote,
+    TicketSavedView,
     TicketTag,
 )

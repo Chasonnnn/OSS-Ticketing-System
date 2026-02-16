@@ -10,6 +10,7 @@ from app.worker.jobs.mailbox_history_sync import mailbox_history_sync
 from app.worker.jobs.occurrence_fetch_raw import occurrence_fetch_raw
 from app.worker.jobs.occurrence_parse import occurrence_parse
 from app.worker.jobs.occurrence_stitch import occurrence_stitch
+from app.worker.jobs.outbound_send import outbound_send
 from app.worker.jobs.ticket_apply_routing import ticket_apply_routing
 
 
@@ -32,6 +33,9 @@ def handle_job(*, session: Session, job_id: UUID, job_type: JobType, payload: di
         return
     if job_type == JobType.ticket_apply_routing:
         ticket_apply_routing(session=session, payload=payload)
+        return
+    if job_type == JobType.outbound_send:
+        outbound_send(session=session, payload=payload)
         return
 
     raise NotImplementedError(f"Job type not implemented: {job_type.value}")

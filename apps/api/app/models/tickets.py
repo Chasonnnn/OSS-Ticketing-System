@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import CITEXT, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
-from app.models.enums import RoutingConfidence, TicketPriority, TicketStatus
+from app.models.enums import MessageDirection, RoutingConfidence, TicketPriority, TicketStatus
 
 
 class Ticket(Base):
@@ -193,7 +193,9 @@ class RoutingRule(Base):
     match_recipient_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
     match_sender_domain_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
     match_sender_email_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
-    match_direction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    match_direction: Mapped[MessageDirection | None] = mapped_column(
+        Enum(MessageDirection, name="message_direction", create_type=False), nullable=True
+    )
 
     action_assign_queue_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("queues.id", ondelete="SET NULL"), nullable=True
@@ -201,7 +203,9 @@ class RoutingRule(Base):
     action_assign_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    action_set_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    action_set_status: Mapped[TicketStatus | None] = mapped_column(
+        Enum(TicketStatus, name="ticket_status", create_type=False), nullable=True
+    )
     action_drop: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     action_auto_close: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
@@ -228,5 +232,25 @@ class RoutingRuleAddTag(Base):
         ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class TicketSavedView(Base):
+    __tablename__ = "ticket_saved_views"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    filters_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

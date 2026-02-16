@@ -10,14 +10,26 @@ from app.core.deps import OrgContext, require_csrf_header, require_roles
 from app.db.session import get_session
 from app.models.enums import MembershipRole, TicketStatus
 from app.schemas.tickets import (
+    RoutingSimulationAppliedActions,
+    RoutingSimulationMatchedRule,
+    RoutingSimulationRequest,
+    RoutingSimulationResponse,
+    SendIdentityOut,
     TicketDetailResponse,
     TicketListResponse,
     TicketNoteCreateRequest,
     TicketNoteOut,
     TicketOut,
+    TicketReplyRequest,
+    TicketReplyResponse,
+    TicketSavedViewCreateRequest,
+    TicketSavedViewOut,
     TicketUpdateRequest,
 )
+from app.services.routing_simulator import simulate_routing
 from app.services.ticket_commands import create_ticket_note, update_ticket
+from app.services.ticket_outbound import list_send_identities, queue_ticket_reply
+from app.services.ticket_saved_views import create_saved_view, delete_saved_view, list_saved_views
 from app.services.ticket_views import (
     get_ticket_attachment_download,
     get_ticket_detail,
@@ -51,6 +63,89 @@ def tickets_list(
         assignee_queue_id=assignee_queue_id,
     )
     return TicketListResponse(items=page.items, next_cursor=page.next_cursor)
+
+
+@router.get("/send-identities", response_model=list[SendIdentityOut])
+def ticket_send_identities(
+    org: OrgContext = Depends(require_roles([MembershipRole.admin, MembershipRole.agent])),
+    session: Session = Depends(get_session),
+) -> list[SendIdentityOut]:
+    rows = list_send_identities(session=session, organization_id=org.organization.id)
+    return [SendIdentityOut(**row) for row in rows]
+
+
+@router.post(
+    "/saved-views",
+    response_model=TicketSavedViewOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def ticket_saved_view_create(
+    payload: TicketSavedViewCreateRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin, MembershipRole.agent])),
+    session: Session = Depends(get_session),
+) -> TicketSavedViewOut:
+    row = create_saved_view(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        name=payload.name,
+        filters=payload.filters,
+    )
+    session.commit()
+    return TicketSavedViewOut(**row)
+
+
+@router.get("/saved-views", response_model=list[TicketSavedViewOut])
+def ticket_saved_views_list(
+    org: OrgContext = Depends(
+        require_roles([MembershipRole.admin, MembershipRole.agent, MembershipRole.viewer])
+    ),
+    session: Session = Depends(get_session),
+) -> list[TicketSavedViewOut]:
+    rows = list_saved_views(session=session, organization_id=org.organization.id)
+    return [TicketSavedViewOut(**row) for row in rows]
+
+
+@router.delete("/saved-views/{saved_view_id}", status_code=status.HTTP_204_NO_CONTENT)
+def ticket_saved_view_delete(
+    saved_view_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin, MembershipRole.agent])),
+    session: Session = Depends(get_session),
+) -> None:
+    delete_saved_view(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        saved_view_id=saved_view_id,
+    )
+    session.commit()
+    return None
+
+
+@router.post("/routing/simulate", response_model=RoutingSimulationResponse)
+def ticket_routing_simulate(
+    payload: RoutingSimulationRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin, MembershipRole.agent])),
+    session: Session = Depends(get_session),
+) -> RoutingSimulationResponse:
+    simulated = simulate_routing(
+        session=session,
+        organization_id=org.organization.id,
+        recipient=payload.recipient,
+        sender_email=payload.sender_email,
+        direction=payload.direction,
+    )
+    return RoutingSimulationResponse(
+        allowlisted=simulated.allowlisted,
+        would_mark_spam=simulated.would_mark_spam,
+        matched_rule=(
+            RoutingSimulationMatchedRule(**simulated.matched_rule)
+            if simulated.matched_rule is not None
+            else None
+        ),
+        applied_actions=RoutingSimulationAppliedActions(**simulated.applied_actions),
+        explanation=simulated.explanation,
+    )
 
 
 @router.get("/{ticket_id}", response_model=TicketDetailResponse)
@@ -118,6 +213,32 @@ def ticket_update(
     )
     session.commit()
     return TicketOut(**updated)
+
+
+@router.post(
+    "/{ticket_id}/reply",
+    response_model=TicketReplyResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def ticket_reply(
+    ticket_id: UUID,
+    payload: TicketReplyRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin, MembershipRole.agent])),
+    session: Session = Depends(get_session),
+) -> TicketReplyResponse:
+    queued = queue_ticket_reply(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        ticket_id=ticket_id,
+        send_identity_id=payload.send_identity_id,
+        to_emails=payload.to_emails,
+        cc_emails=payload.cc_emails,
+        subject=payload.subject,
+        body_text=payload.body_text,
+    )
+    session.commit()
+    return TicketReplyResponse(**queued)
 
 
 @router.post(

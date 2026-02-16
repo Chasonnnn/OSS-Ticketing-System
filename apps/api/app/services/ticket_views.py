@@ -157,6 +157,7 @@ def get_ticket_detail(
                   tm.stitch_reason,
                   tm.stitch_confidence,
                   m.direction,
+                  m.collision_group_id,
                   m.rfc_message_id,
                   mc.date_header,
                   mc.subject,
@@ -297,6 +298,7 @@ def get_ticket_detail(
                 "stitch_reason": row["stitch_reason"],
                 "stitch_confidence": row["stitch_confidence"],
                 "direction": row["direction"],
+                "collision_group_id": row["collision_group_id"],
                 "rfc_message_id": row["rfc_message_id"],
                 "date_header": row["date_header"],
                 "subject": row["subject"],
@@ -441,9 +443,7 @@ def get_ticket_attachment_download(
         fallback=f"attachment-{attachment_id}",
     )
     content_type = (
-        row["attachment_content_type"]
-        or row["blob_content_type"]
-        or "application/octet-stream"
+        row["attachment_content_type"] or row["blob_content_type"] or "application/octet-stream"
     )
     disposition = _build_attachment_disposition(filename)
 
@@ -507,6 +507,9 @@ def _coerce_text_array(value: object) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
+        # Some drivers can decode citext[] as a list of single-character strings.
+        if value and all(isinstance(v, str) and len(v) == 1 for v in value):
+            return _coerce_text_array("".join(value))
         return [str(v) for v in value if str(v)]
     if isinstance(value, str):
         raw = value.strip()
@@ -530,10 +533,7 @@ def _safe_download_filename(*, raw_filename: str | None, fallback: str) -> str:
 
 def _build_attachment_disposition(filename: str) -> str:
     ascii_name = (
-        filename.encode("ascii", "ignore")
-        .decode("ascii")
-        .replace("\\", "_")
-        .replace('"', "'")
+        filename.encode("ascii", "ignore").decode("ascii").replace("\\", "_").replace('"', "'")
     )
     if not ascii_name:
         ascii_name = "attachment"
