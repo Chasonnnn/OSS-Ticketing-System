@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { FormEvent, useState } from "react"
+import { FormEvent, useMemo, useState } from "react"
 
 import { Badge } from "../../../../components/ui/badge"
 import { Button } from "../../../../components/ui/button"
@@ -31,6 +31,7 @@ type TicketAttachment = {
 
 type TicketMessage = {
   message_id: string
+  collision_group_id: string | null
   stitched_at: string
   stitch_reason: string
   stitch_confidence: string
@@ -110,11 +111,47 @@ type QueueOut = {
   created_at: string
 }
 
+type SendIdentityOut = {
+  id: string
+  mailbox_id: string
+  from_email: string
+  from_name: string | null
+  status: string
+  is_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+type TicketReplyResponse = {
+  status: string
+  job_id: string
+  message_id: string
+  oss_message_id: string
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "n/a"
   const dt = new Date(value)
   if (Number.isNaN(dt.getTime())) return "n/a"
   return dt.toLocaleString()
+}
+
+function parseEmailCsv(value: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of value.split(",")) {
+    const email = part.trim().toLowerCase()
+    if (!email || seen.has(email)) continue
+    seen.add(email)
+    out.push(email)
+  }
+  return out
+}
+
+function defaultReplySubject(ticketSubject: string | null): string {
+  const subject = (ticketSubject || "").trim()
+  if (!subject) return "Re: (no subject)"
+  return /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`
 }
 
 export function TicketDetailClient({ ticketId }: { ticketId: string }) {
@@ -123,6 +160,16 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
   const [controlError, setControlError] = useState<string | null>(null)
   const [noteBody, setNoteBody] = useState("")
   const [noteError, setNoteError] = useState<string | null>(null)
+
+  const [replyIdentityId, setReplyIdentityId] = useState("")
+  const [replyIdentityDirty, setReplyIdentityDirty] = useState(false)
+  const [replyTo, setReplyTo] = useState("")
+  const [replyCc, setReplyCc] = useState("")
+  const [replySubject, setReplySubject] = useState("")
+  const [replySubjectDirty, setReplySubjectDirty] = useState(false)
+  const [replyBody, setReplyBody] = useState("")
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const [replyQueuedMessage, setReplyQueuedMessage] = useState<string | null>(null)
 
   const me = useQuery({
     queryKey: ["me"],
@@ -149,6 +196,13 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
     queryKey: ["queues"],
     queryFn: async (): Promise<QueueOut[]> => apiFetchJson<QueueOut[]>("/queues"),
     enabled: !!me.data,
+    retry: false
+  })
+
+  const sendIdentities = useQuery({
+    queryKey: ["ticket-send-identities"],
+    queryFn: async (): Promise<SendIdentityOut[]> => apiFetchJson<SendIdentityOut[]>("/tickets/send-identities"),
+    enabled: !!me.data && me.data.role !== "viewer",
     retry: false
   })
 
@@ -212,6 +266,53 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
     }
   })
 
+  const queueReply = useMutation({
+    mutationFn: async (payload: {
+      sendIdentityId: string
+      toEmails: string[]
+      ccEmails: string[]
+      subject: string
+      bodyText: string
+    }): Promise<TicketReplyResponse> => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson<TicketReplyResponse>(`/tickets/${ticketId}/reply`, {
+        method: "POST",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify({
+          send_identity_id: payload.sendIdentityId,
+          to_emails: payload.toEmails,
+          cc_emails: payload.ccEmails,
+          subject: payload.subject,
+          body_text: payload.bodyText,
+        })
+      })
+    },
+    onSuccess: async (queued) => {
+      setReplyError(null)
+      setReplyQueuedMessage(`Queued message ${queued.message_id}`)
+      setReplyBody("")
+      await qc.invalidateQueries({ queryKey: ["ticket", ticketId] })
+      await qc.invalidateQueries({ queryKey: ["tickets"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setReplyError(error.detail)
+      else setReplyError("Failed to queue reply")
+    }
+  })
+
+  const preferredFrom = useMemo(() => {
+    const first = (sendIdentities.data ?? [])[0]
+    if (!first) return ""
+    return first.from_name ? `${first.from_name} <${first.from_email}>` : first.from_email
+  }, [sendIdentities.data])
+
+  const selectedReplyIdentityId = replyIdentityDirty
+    ? replyIdentityId
+    : replyIdentityId || (sendIdentities.data ?? [])[0]?.id || ""
+  const effectiveReplySubject = replySubjectDirty
+    ? replySubject
+    : defaultReplySubject(detail.data?.ticket.subject ?? null)
+
   if (me.isLoading) {
     return (
       <Card>
@@ -242,6 +343,20 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
       </Card>
     )
   }
+
+  if (me.isError || !me.data) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            {me.error instanceof ApiError ? me.error.detail : "Failed to load your session"}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const role = me.data.role
 
   if (detail.isLoading) {
     return (
@@ -324,6 +439,39 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
       return
     }
     createNote.mutate(trimmed)
+  }
+
+  const handleQueueReply = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const toEmails = parseEmailCsv(replyTo)
+    const ccEmails = parseEmailCsv(replyCc)
+    const subject = effectiveReplySubject.trim()
+    const bodyText = replyBody.trim()
+
+    if (!selectedReplyIdentityId) {
+      setReplyError("Select a send identity")
+      return
+    }
+    if (toEmails.length === 0) {
+      setReplyError("Enter at least one To recipient")
+      return
+    }
+    if (!subject) {
+      setReplyError("Subject is required")
+      return
+    }
+    if (!bodyText) {
+      setReplyError("Reply body cannot be empty")
+      return
+    }
+
+    queueReply.mutate({
+      sendIdentityId: selectedReplyIdentityId,
+      toEmails,
+      ccEmails,
+      subject,
+      bodyText,
+    })
   }
 
   return (
@@ -426,6 +574,109 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
         </CardContent>
       </Card>
 
+      {role !== "viewer" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Reply Composer</CardTitle>
+            <CardDescription>
+              Queue an outbound response from a verified send identity. Journal mirrors dedupe by `X-OSS-Message-ID`.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {sendIdentities.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-neutral-700">
+                <Spinner /> Loading send identities…
+              </div>
+            ) : null}
+
+            {!sendIdentities.isLoading && (sendIdentities.data ?? []).length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                No enabled send identities are available for this organization.
+              </div>
+            ) : null}
+
+            <form className="grid gap-3" onSubmit={handleQueueReply}>
+              <label className="grid gap-1 text-sm text-neutral-800">
+                <span>From</span>
+                <select
+                  value={selectedReplyIdentityId}
+                  onChange={(event) => {
+                    setReplyIdentityDirty(true)
+                    setReplyIdentityId(event.target.value)
+                  }}
+                  className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+                >
+                  <option value="">Select send identity…</option>
+                  {(sendIdentities.data ?? []).map((identity) => (
+                    <option key={identity.id} value={identity.id}>
+                      {identity.from_name ? `${identity.from_name} <${identity.from_email}>` : identity.from_email}
+                    </option>
+                  ))}
+                </select>
+                {preferredFrom && !selectedReplyIdentityId ? (
+                  <div className="text-xs text-neutral-500">Suggested: {preferredFrom}</div>
+                ) : null}
+              </label>
+
+              <label className="grid gap-1 text-sm text-neutral-800">
+                <span>To (comma-separated)</span>
+                <Input
+                  value={replyTo}
+                  onChange={(event) => setReplyTo(event.target.value)}
+                  placeholder={data.ticket.requester_email || "customer@example.com"}
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm text-neutral-800">
+                <span>Cc (optional, comma-separated)</span>
+                <Input
+                  value={replyCc}
+                  onChange={(event) => setReplyCc(event.target.value)}
+                  placeholder="billing@example.com, ops@example.com"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm text-neutral-800">
+                <span>Subject</span>
+                <Input
+                  value={effectiveReplySubject}
+                  onChange={(event) => {
+                    setReplySubjectDirty(true)
+                    setReplySubject(event.target.value)
+                  }}
+                  placeholder={defaultReplySubject(data.ticket.subject)}
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm text-neutral-800">
+                <span>Body</span>
+                <textarea
+                  value={replyBody}
+                  onChange={(event) => setReplyBody(event.target.value)}
+                  className="min-h-32 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+                  placeholder="Write your response"
+                />
+              </label>
+
+              {replyError ? <div className="text-sm text-red-700">{replyError}</div> : null}
+              {replyQueuedMessage ? <div className="text-sm text-green-700">{replyQueuedMessage}</div> : null}
+
+              <div>
+                <Button type="submit" disabled={queueReply.isPending || (sendIdentities.data ?? []).length === 0}>
+                  {queueReply.isPending ? (
+                    <>
+                      <Spinner /> Queueing…
+                    </>
+                  ) : (
+                    "Queue reply"
+                  )}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Thread</CardTitle>
@@ -438,6 +689,9 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="neutral">{message.direction}</Badge>
                 <span className="text-xs text-neutral-500">stitched: {formatDate(message.stitched_at)}</span>
+                {message.collision_group_id ? (
+                  <span className="text-xs text-amber-700">collision group: {message.collision_group_id}</span>
+                ) : null}
               </div>
               <div className="mt-2 text-sm font-medium text-neutral-900">{message.subject || "(no subject)"}</div>
               <div className="mt-1 text-xs text-neutral-600">
@@ -460,9 +714,7 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
                     {message.attachments.map((attachment) => (
                       <li key={attachment.id}>
                         <a
-                          href={buildApiUrl(
-                            `/tickets/${ticketId}/attachments/${attachment.id}/download`
-                          )}
+                          href={buildApiUrl(`/tickets/${ticketId}/attachments/${attachment.id}/download`)}
                           className="underline decoration-neutral-400 underline-offset-2 transition hover:text-neutral-900"
                         >
                           {attachment.filename || "(unnamed)"}
@@ -485,17 +737,17 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
                         className="rounded-md border border-neutral-200 bg-white p-3 text-xs text-neutral-700"
                       >
                         <div>
-                          recipient: {occurrence.original_recipient || "unknown"} · source:{" "}
+                          recipient: {occurrence.original_recipient || "unknown"} · source: {" "}
                           {occurrence.original_recipient_source} · confidence:{" "}
                           {occurrence.original_recipient_confidence}
                         </div>
                         <div className="mt-1">
-                          mailbox: {occurrence.mailbox_id} · gmail_message_id:{" "}
+                          mailbox: {occurrence.mailbox_id} · gmail_message_id: {" "}
                           {occurrence.gmail_message_id}
                         </div>
                         {occurrence.route_error || occurrence.stitch_error || occurrence.parse_error ? (
                           <div className="mt-1 text-red-700">
-                            errors:{" "}
+                            errors: {" "}
                             {[occurrence.parse_error, occurrence.stitch_error, occurrence.route_error]
                               .filter(Boolean)
                               .join(" | ")}
@@ -535,35 +787,35 @@ export function TicketDetailClient({ ticketId }: { ticketId: string }) {
         </Card>
 
         <Card>
-        <CardHeader>
-          <CardTitle>Internal Notes</CardTitle>
-          <CardDescription>{data.notes.length} note(s)</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <form className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3" onSubmit={handleCreateNote}>
-            <label className="text-sm font-medium text-neutral-900" htmlFor="note-body">
-              Add internal note
-            </label>
-            <Input
-              id="note-body"
-              value={noteBody}
-              onChange={(event) => setNoteBody(event.target.value)}
-              placeholder="Write an internal note (not sent to customer)"
-            />
-            {noteError ? <div className="text-sm text-red-700">{noteError}</div> : null}
-            <div>
-              <Button type="submit" disabled={createNote.isPending}>
-                {createNote.isPending ? (
-                  <>
-                    <Spinner /> Posting…
-                  </>
-                ) : (
-                  "Add note"
-                )}
-              </Button>
-            </div>
-          </form>
-          {data.notes.length === 0 ? <div className="text-sm text-neutral-600">No internal notes yet.</div> : null}
+          <CardHeader>
+            <CardTitle>Internal Notes</CardTitle>
+            <CardDescription>{data.notes.length} note(s)</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <form className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3" onSubmit={handleCreateNote}>
+              <label className="text-sm font-medium text-neutral-900" htmlFor="note-body">
+                Add internal note
+              </label>
+              <Input
+                id="note-body"
+                value={noteBody}
+                onChange={(event) => setNoteBody(event.target.value)}
+                placeholder="Write an internal note (not sent to customer)"
+              />
+              {noteError ? <div className="text-sm text-red-700">{noteError}</div> : null}
+              <div>
+                <Button type="submit" disabled={createNote.isPending}>
+                  {createNote.isPending ? (
+                    <>
+                      <Spinner /> Posting…
+                    </>
+                  ) : (
+                    "Add note"
+                  )}
+                </Button>
+              </div>
+            </form>
+            {data.notes.length === 0 ? <div className="text-sm text-neutral-600">No internal notes yet.</div> : null}
             {data.notes.map((note) => (
               <div key={note.id} className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
                 <div className="text-xs text-neutral-600">{formatDate(note.created_at)}</div>
