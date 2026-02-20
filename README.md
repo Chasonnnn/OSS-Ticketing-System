@@ -5,6 +5,11 @@ Enterprise-grade ticketing system built around Google Workspace journaling: mail
 ## Docs
 - `WORKMAP.md` (week-by-week plan)
 - `AGENTS.md` (engineering rules)
+- `docs/self-hosting.md`
+- `docs/workspace-journal-setup.md`
+- `docs/production-checklist.md`
+- `docs/runbooks.md`
+- `docs/load-testing.md`
 
 ## Development
 
@@ -72,7 +77,19 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
   - `POST /mailboxes/{mailbox_id}/sync/backfill`
   - `POST /mailboxes/{mailbox_id}/sync/history`
   - `GET /mailboxes/{mailbox_id}/sync/status`
+  - `POST /mailboxes/{mailbox_id}/sync/pause?minutes=30`
   - `POST /mailboxes/{mailbox_id}/sync/resume` (clears pause and queues history sync)
+
+## Ops APIs
+- Mailbox sync summary (all mailboxes):
+  - `GET /ops/mailboxes/sync`
+- Collision-group summary:
+  - `GET /ops/messages/collisions?limit=50`
+- Ops metrics overview:
+  - `GET /ops/metrics/overview`
+- DLQ:
+  - `GET /ops/jobs/dlq`
+  - `POST /ops/jobs/{job_id}/replay`
 
 ## Ticket APIs
 - List/search tickets (cursor pagination):

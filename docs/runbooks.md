@@ -18,6 +18,25 @@ Replay failed worker jobs safely for a single organization.
 - Replay only resets queue state (`status`, `run_at`, locks, `last_error`); payload remains unchanged.
 - Repeated failures should be investigated before repeated replays.
 
+## Mailbox Sync Pause/Resume
+
+### Goal
+Pause noisy mailbox ingestion and safely resume after remediation.
+
+### Endpoints
+- Pause:
+  - `POST /mailboxes/{mailbox_id}/sync/pause?minutes=30`
+- Resume:
+  - `POST /mailboxes/{mailbox_id}/sync/resume`
+- Status:
+  - `GET /mailboxes/{mailbox_id}/sync/status`
+
+### Operator Steps
+1. Pause mailbox ingestion when loops/failure storms are observed.
+2. Resolve root cause (routing, credentials, mailbox config).
+3. Resume ingestion to clear pause and enqueue history sync.
+4. Confirm `sync_lag_seconds` and job queues trend back to normal.
+
 ## Correlation IDs
 
 ### Goal
@@ -32,6 +51,21 @@ Trace a request across API logs and client reports.
 1. Capture the `x-request-id` from a failing API response.
 2. Search backend logs for the same `request_id`.
 3. Use `path` and `status_code` entries to identify where the failure occurred.
+
+## Ops Dashboard APIs
+
+### Goal
+Provide an organization-scoped operational snapshot.
+
+### Endpoints
+- `GET /ops/mailboxes/sync`
+- `GET /ops/messages/collisions?limit=50`
+- `GET /ops/metrics/overview`
+
+### Usage
+1. Start at `/ops/metrics/overview` for queue and mailbox-level health.
+2. Inspect `/ops/mailboxes/sync` for lag, pauses, and per-mailbox failures.
+3. Use `/ops/messages/collisions` when dedupe ambiguity needs investigation.
 
 ## Rate Limiting
 

@@ -29,8 +29,21 @@ FastAPI + Postgres backend for the OSS Ticketing System.
   - `POST /mailboxes/{mailbox_id}/sync/history`
 - Check sync status (lag + queued/running jobs):
   - `GET /mailboxes/{mailbox_id}/sync/status`
+- Pause ingestion for a mailbox:
+  - `POST /mailboxes/{mailbox_id}/sync/pause?minutes=30`
 - Resume auto-paused ingestion and enqueue history sync:
   - `POST /mailboxes/{mailbox_id}/sync/resume`
+
+## Ops Endpoints
+- Mailbox sync summary:
+  - `GET /ops/mailboxes/sync`
+- Collision-group summary:
+  - `GET /ops/messages/collisions?limit=50`
+- Metrics overview:
+  - `GET /ops/metrics/overview`
+- DLQ:
+  - `GET /ops/jobs/dlq`
+  - `POST /ops/jobs/{job_id}/replay`
 
 ## Ticket Endpoints
 - List/search with cursor pagination:
