@@ -62,6 +62,12 @@ class OpsCollisionGroupsResponse(BaseModel):
     items: list[OpsCollisionGroupItem]
 
 
+class OpsCollisionBackfillResponse(BaseModel):
+    fingerprints_scanned: int
+    groups_updated: int
+    messages_updated: int
+
+
 class OpsMetricsOverviewResponse(BaseModel):
     queued_jobs: int
     running_jobs: int

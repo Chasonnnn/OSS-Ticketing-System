@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -46,6 +46,13 @@ class OpsMetricsOverviewView:
     mailbox_count: int
     paused_mailbox_count: int
     avg_sync_lag_seconds: int | None
+
+
+@dataclass(frozen=True)
+class OpsCollisionBackfillResult:
+    fingerprints_scanned: int
+    groups_updated: int
+    messages_updated: int
 
 
 def list_mailboxes_sync(
@@ -195,6 +202,69 @@ def list_collision_groups(
             )
         )
     return out
+
+
+def backfill_collision_groups(
+    *,
+    session: Session,
+    organization_id: UUID,
+) -> OpsCollisionBackfillResult:
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT
+                  fingerprint_v1,
+                  (
+                    ARRAY_AGG(collision_group_id)
+                    FILTER (WHERE collision_group_id IS NOT NULL)
+                  )[1] AS existing_collision_group_id
+                FROM messages
+                WHERE organization_id = :organization_id
+                GROUP BY fingerprint_v1
+                HAVING COUNT(DISTINCT signature_v1) > 1
+                   AND COUNT(*) FILTER (WHERE collision_group_id IS NULL) > 0
+                """
+            ),
+            {"organization_id": str(organization_id)},
+        )
+        .mappings()
+        .all()
+    )
+
+    groups_updated = 0
+    messages_updated = 0
+    for row in rows:
+        existing_group_id = row["existing_collision_group_id"]
+        group_id = UUID(str(existing_group_id)) if existing_group_id is not None else uuid4()
+        updated_count = (
+            session.execute(
+                text(
+                    """
+                    UPDATE messages
+                    SET collision_group_id = :collision_group_id
+                    WHERE organization_id = :organization_id
+                      AND fingerprint_v1 = :fingerprint_v1
+                      AND collision_group_id IS NULL
+                    """
+                ),
+                {
+                    "organization_id": str(organization_id),
+                    "fingerprint_v1": row["fingerprint_v1"],
+                    "collision_group_id": str(group_id),
+                },
+            ).rowcount
+            or 0
+        )
+        if updated_count > 0:
+            groups_updated += 1
+            messages_updated += updated_count
+
+    return OpsCollisionBackfillResult(
+        fingerprints_scanned=len(rows),
+        groups_updated=groups_updated,
+        messages_updated=messages_updated,
+    )
 
 
 def get_metrics_overview(

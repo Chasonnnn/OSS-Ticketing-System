@@ -12,6 +12,7 @@ from app.models.enums import MembershipRole
 from app.schemas.ops import (
     DlqJobsResponse,
     DlqReplayResponse,
+    OpsCollisionBackfillResponse,
     OpsCollisionGroupItem,
     OpsCollisionGroupsResponse,
     OpsMailboxSyncItem,
@@ -19,6 +20,7 @@ from app.schemas.ops import (
     OpsMetricsOverviewResponse,
 )
 from app.services.ops_dashboard import (
+    backfill_collision_groups,
     get_metrics_overview,
     list_collision_groups,
     list_mailboxes_sync,
@@ -174,6 +176,23 @@ def ops_collision_groups(
             )
             for row in rows
         ]
+    )
+
+
+@router.post("/messages/collisions/backfill", response_model=OpsCollisionBackfillResponse)
+def ops_collision_groups_backfill(
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> OpsCollisionBackfillResponse:
+    result = backfill_collision_groups(
+        session=session,
+        organization_id=org.organization.id,
+    )
+    session.commit()
+    return OpsCollisionBackfillResponse(
+        fingerprints_scanned=result.fingerprints_scanned,
+        groups_updated=result.groups_updated,
+        messages_updated=result.messages_updated,
     )
 
 
