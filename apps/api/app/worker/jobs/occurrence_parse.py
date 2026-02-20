@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -201,6 +201,65 @@ def _upsert_canonical_message(
         if existing is not None:
             return UUID(str(existing["message_id"]))
 
+    fingerprint_rows = (
+        session.execute(
+            text(
+                """
+            SELECT
+              mf.message_id,
+              mf.signature_v1,
+              m.collision_group_id
+            FROM message_fingerprints mf
+            JOIN messages m
+              ON m.id = mf.message_id
+             AND m.organization_id = mf.organization_id
+            WHERE mf.organization_id = :org_id
+              AND mf.fingerprint_version = 1
+              AND mf.fingerprint = :fingerprint
+            FOR UPDATE
+            """
+            ),
+            {
+                "org_id": str(organization_id),
+                "fingerprint": fingerprint_v1,
+            },
+        )
+        .mappings()
+        .all()
+    )
+    for row in fingerprint_rows:
+        if bytes(row["signature_v1"]) == signature_v1:
+            return UUID(str(row["message_id"]))
+
+    collision_group_id: UUID | None = None
+    if fingerprint_rows:
+        for row in fingerprint_rows:
+            if row["collision_group_id"] is not None:
+                collision_group_id = UUID(str(row["collision_group_id"]))
+                break
+        if collision_group_id is None:
+            collision_group_id = uuid4()
+
+        for row in fingerprint_rows:
+            existing_message_id = UUID(str(row["message_id"]))
+            session.execute(
+                text(
+                    """
+                    UPDATE messages
+                    SET collision_group_id = :collision_group_id
+                    WHERE organization_id = :org_id
+                      AND id = :message_id
+                      AND collision_group_id IS NULL
+                    """
+                ),
+                {
+                    "org_id": str(organization_id),
+                    "message_id": str(existing_message_id),
+                    "collision_group_id": str(collision_group_id),
+                },
+            )
+
+    # Re-check exact fingerprint/signature match in case another transaction inserted it.
     existing_fp = (
         session.execute(
             text(
@@ -236,6 +295,7 @@ def _upsert_canonical_message(
               rfc_message_id,
               fingerprint_v1,
               signature_v1,
+              collision_group_id,
               created_at,
               first_seen_at
             )
@@ -246,6 +306,7 @@ def _upsert_canonical_message(
               :rfc_message_id,
               :fingerprint,
               :signature,
+              :collision_group_id,
               now(),
               now()
             )
@@ -259,6 +320,9 @@ def _upsert_canonical_message(
                 "rfc_message_id": rfc_message_id,
                 "fingerprint": fingerprint_v1,
                 "signature": signature_v1,
+                "collision_group_id": (
+                    str(collision_group_id) if collision_group_id is not None else None
+                ),
             },
         )
         .mappings()
