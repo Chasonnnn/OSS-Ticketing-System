@@ -85,10 +85,15 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
   - `GET /ops/mailboxes/sync`
 - Collision-group summary:
   - `GET /ops/messages/collisions?limit=50`
+- Collision-group backfill (assign missing groups on historical ambiguous fingerprints):
+  - `POST /ops/messages/collisions/backfill`
 - Ops metrics overview:
   - `GET /ops/metrics/overview`
 - Prometheus metrics export:
   - `GET /metrics` (when `ENABLE_PROMETHEUS_METRICS=true`)
+- OpenTelemetry tracing export:
+  - Enable with `ENABLE_OTEL_TRACING=true`
+  - Configure collector endpoint via `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
 - DLQ:
   - `GET /ops/jobs/dlq`
   - `POST /ops/jobs/{job_id}/replay`

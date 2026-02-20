@@ -60,12 +60,14 @@ Provide an organization-scoped operational snapshot.
 ### Endpoints
 - `GET /ops/mailboxes/sync`
 - `GET /ops/messages/collisions?limit=50`
+- `POST /ops/messages/collisions/backfill`
 - `GET /ops/metrics/overview`
 
 ### Usage
 1. Start at `/ops/metrics/overview` for queue and mailbox-level health.
 2. Inspect `/ops/mailboxes/sync` for lag, pauses, and per-mailbox failures.
 3. Use `/ops/messages/collisions` when dedupe ambiguity needs investigation.
+4. Run `/ops/messages/collisions/backfill` to assign missing `collision_group_id` values on older ambiguous rows.
 
 ## Rate Limiting
 
@@ -76,6 +78,7 @@ Control burst abuse and accidental high-frequency traffic.
 - `RATE_LIMIT_REQUESTS_PER_MINUTE` controls per-IP request limit (default: `120`).
 - Set to `0` to disable.
 - `ENABLE_PROMETHEUS_METRICS` controls `/metrics` exposure (default: `true`).
+- `ENABLE_OTEL_TRACING` controls OTLP tracing export (default: `false`).
 
 ### Operator Response
 1. If legitimate clients are throttled, increase `RATE_LIMIT_REQUESTS_PER_MINUTE`.
@@ -105,3 +108,17 @@ Expose Prometheus-scrapable API metrics for request throughput and latency.
 - `oss_http_requests_total`
 - `oss_http_request_duration_seconds`
 - `oss_http_rate_limited_total`
+
+## Tracing Export
+
+### Goal
+Emit request and SQL spans to an OTLP collector.
+
+### Configuration
+- `ENABLE_OTEL_TRACING=true`
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces`
+- Optional:
+  - `OTEL_SERVICE_NAME`
+  - `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`)
+  - `OTEL_TRACE_SAMPLE_RATIO` (`0.0` to `1.0`)
+  - `OTEL_EXCLUDED_URLS` (comma-separated URL list)

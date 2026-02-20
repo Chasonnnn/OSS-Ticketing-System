@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 120
     ENABLE_PROMETHEUS_METRICS: bool = True
     PROMETHEUS_METRICS_PATH: str = "/metrics"
+    ENABLE_OTEL_TRACING: bool = False
+    OTEL_SERVICE_NAME: str = "oss-ticketing-api"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: str = "http://localhost:4318/v1/traces"
+    OTEL_EXPORTER_OTLP_HEADERS: str = ""
+    OTEL_TRACE_SAMPLE_RATIO: float = 1.0
+    OTEL_EXCLUDED_URLS: str = "/healthz,/readyz,/metrics"
     CONTENT_SECURITY_POLICY: str = (
         "default-src 'self'; "
         "img-src 'self' data: cid:; "
@@ -65,6 +71,13 @@ class Settings(BaseSettings):
     def _empty_cookie_domain_to_none(cls, v: object) -> object:
         if v == "":
             return None
+        return v
+
+    @field_validator("OTEL_TRACE_SAMPLE_RATIO")
+    @classmethod
+    def _validate_otel_sample_ratio(cls, v: float) -> float:
+        if v < 0 or v > 1:
+            raise ValueError("OTEL_TRACE_SAMPLE_RATIO must be between 0 and 1")
         return v
 
 

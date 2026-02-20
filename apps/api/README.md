@@ -39,10 +39,15 @@ FastAPI + Postgres backend for the OSS Ticketing System.
   - `GET /ops/mailboxes/sync`
 - Collision-group summary:
   - `GET /ops/messages/collisions?limit=50`
+- Collision-group backfill:
+  - `POST /ops/messages/collisions/backfill`
 - Metrics overview:
   - `GET /ops/metrics/overview`
 - Prometheus metrics:
   - `GET /metrics` (toggle with `ENABLE_PROMETHEUS_METRICS`)
+- OpenTelemetry tracing:
+  - Toggle with `ENABLE_OTEL_TRACING`
+  - OTLP HTTP endpoint via `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
 - DLQ:
   - `GET /ops/jobs/dlq`
   - `POST /ops/jobs/{job_id}/replay`

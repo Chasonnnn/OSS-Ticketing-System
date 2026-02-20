@@ -16,6 +16,7 @@ from app.core.middleware import (
     rate_limit_response,
     request_id_ctx,
 )
+from app.core.otel import setup_otel
 from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
 from app.routers.mailboxes import router as mailboxes_router
@@ -98,6 +99,12 @@ def create_app() -> FastAPI:
     app.include_router(tickets_router)
     app.include_router(ops_router)
     app.include_router(mailboxes_router)
+
+    otel_setup = setup_otel(app=app, settings=settings)
+    app.state.otel_tracing_enabled = otel_setup.enabled
+    app.state.otel_tracing_reason = otel_setup.reason
+    if otel_setup.shutdown is not None:
+        app.add_event_handler("shutdown", otel_setup.shutdown)
     return app
 
 
