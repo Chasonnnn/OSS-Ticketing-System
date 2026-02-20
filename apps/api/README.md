@@ -41,9 +41,23 @@ FastAPI + Postgres backend for the OSS Ticketing System.
   - `GET /ops/messages/collisions?limit=50`
 - Metrics overview:
   - `GET /ops/metrics/overview`
+- Prometheus metrics:
+  - `GET /metrics` (toggle with `ENABLE_PROMETHEUS_METRICS`)
 - DLQ:
   - `GET /ops/jobs/dlq`
   - `POST /ops/jobs/{job_id}/replay`
+
+## Routing Admin Endpoints
+- Allowlist CRUD:
+  - `GET /tickets/routing/allowlist`
+  - `POST /tickets/routing/allowlist`
+  - `PATCH /tickets/routing/allowlist/{allowlist_id}`
+  - `DELETE /tickets/routing/allowlist/{allowlist_id}`
+- Rule CRUD:
+  - `GET /tickets/routing/rules`
+  - `POST /tickets/routing/rules`
+  - `PATCH /tickets/routing/rules/{rule_id}`
+  - `DELETE /tickets/routing/rules/{rule_id}`
 
 ## Ticket Endpoints
 - List/search with cursor pagination:

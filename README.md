@@ -87,9 +87,23 @@ The Web UI at `http://localhost:3000/mailboxes` includes a dev-login form and us
   - `GET /ops/messages/collisions?limit=50`
 - Ops metrics overview:
   - `GET /ops/metrics/overview`
+- Prometheus metrics export:
+  - `GET /metrics` (when `ENABLE_PROMETHEUS_METRICS=true`)
 - DLQ:
   - `GET /ops/jobs/dlq`
   - `POST /ops/jobs/{job_id}/replay`
+
+## Routing Admin APIs
+- Allowlist CRUD:
+  - `GET /tickets/routing/allowlist`
+  - `POST /tickets/routing/allowlist`
+  - `PATCH /tickets/routing/allowlist/{allowlist_id}`
+  - `DELETE /tickets/routing/allowlist/{allowlist_id}`
+- Routing rule CRUD:
+  - `GET /tickets/routing/rules`
+  - `POST /tickets/routing/rules`
+  - `PATCH /tickets/routing/rules/{rule_id}`
+  - `DELETE /tickets/routing/rules/{rule_id}`
 
 ## Ticket APIs
 - List/search tickets (cursor pagination):

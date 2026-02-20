@@ -75,6 +75,7 @@ Control burst abuse and accidental high-frequency traffic.
 ### Configuration
 - `RATE_LIMIT_REQUESTS_PER_MINUTE` controls per-IP request limit (default: `120`).
 - Set to `0` to disable.
+- `ENABLE_PROMETHEUS_METRICS` controls `/metrics` exposure (default: `true`).
 
 ### Operator Response
 1. If legitimate clients are throttled, increase `RATE_LIMIT_REQUESTS_PER_MINUTE`.
@@ -91,3 +92,16 @@ Control burst abuse and accidental high-frequency traffic.
 
 ### Override
 - Set `CONTENT_SECURITY_POLICY` in environment to customize CSP for your deployment.
+
+## Metrics Export
+
+### Goal
+Expose Prometheus-scrapable API metrics for request throughput and latency.
+
+### Endpoint
+- `GET /metrics`
+
+### Included Metrics
+- `oss_http_requests_total`
+- `oss_http_request_duration_seconds`
+- `oss_http_rate_limited_total`
