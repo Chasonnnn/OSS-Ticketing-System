@@ -57,3 +57,10 @@ class MailboxSyncResumeResponse(BaseModel):
     mailbox_id: UUID
     resumed: bool
     history_sync_job_id: UUID | None
+
+
+class MailboxSyncPauseResponse(BaseModel):
+    mailbox_id: UUID
+    paused: bool
+    paused_until: datetime
+    pause_reason: str

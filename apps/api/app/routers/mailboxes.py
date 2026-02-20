@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from app.schemas.mailboxes import (
     GmailOAuthStartResponse,
     MailboxOut,
     MailboxSyncEnqueueResponse,
+    MailboxSyncPauseResponse,
     MailboxSyncResumeResponse,
     MailboxSyncStatusResponse,
 )
@@ -27,6 +28,7 @@ from app.services.mailbox_sync import (
     enqueue_mailbox_backfill,
     enqueue_mailbox_history_sync,
     get_mailbox_sync_status,
+    pause_mailbox_ingestion,
     resume_mailbox_ingestion,
 )
 from app.services.mailboxes import (
@@ -210,6 +212,28 @@ def mailbox_sync_resume(
         mailbox_id=mailbox_id,
         resumed=True,
         history_sync_job_id=job_id,
+    )
+
+
+@router.post("/{mailbox_id}/sync/pause", response_model=MailboxSyncPauseResponse)
+def mailbox_sync_pause(
+    mailbox_id: UUID,
+    minutes: int = Query(default=30, ge=1, le=10_080),
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> MailboxSyncPauseResponse:
+    paused = pause_mailbox_ingestion(
+        session=session,
+        organization_id=org.organization.id,
+        mailbox_id=mailbox_id,
+        minutes=minutes,
+    )
+    session.commit()
+    return MailboxSyncPauseResponse(
+        mailbox_id=paused.mailbox_id,
+        paused=paused.paused,
+        paused_until=paused.paused_until,
+        pause_reason=paused.pause_reason,
     )
 
 

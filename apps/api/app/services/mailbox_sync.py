@@ -39,6 +39,14 @@ class MailboxSyncStatus:
     running_jobs_by_type: dict[str, int]
 
 
+@dataclass(frozen=True)
+class MailboxSyncPauseResult:
+    mailbox_id: UUID
+    paused: bool
+    paused_until: datetime
+    pause_reason: str
+
+
 def enqueue_mailbox_backfill(
     *,
     session: Session,
@@ -160,6 +168,44 @@ def resume_mailbox_ingestion(
         organization_id=organization_id,
         mailbox_id=mailbox_id,
         reason="manual_resume",
+    )
+
+
+def pause_mailbox_ingestion(
+    *,
+    session: Session,
+    organization_id: UUID,
+    mailbox_id: UUID,
+    minutes: int,
+) -> MailboxSyncPauseResult:
+    mailbox = (
+        session.execute(
+            select(Mailbox)
+            .where(
+                Mailbox.organization_id == organization_id,
+                Mailbox.id == mailbox_id,
+            )
+            .with_for_update()
+        )
+        .scalars()
+        .first()
+    )
+    if mailbox is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mailbox not found")
+
+    pause_until = datetime.now(UTC) + timedelta(minutes=minutes)
+    pause_reason = f"Manual pause by admin ({minutes} minutes)"
+
+    mailbox.ingestion_paused_until = pause_until
+    mailbox.ingestion_pause_reason = pause_reason
+    session.add(mailbox)
+    session.flush()
+
+    return MailboxSyncPauseResult(
+        mailbox_id=mailbox.id,
+        paused=True,
+        paused_until=pause_until,
+        pause_reason=pause_reason,
     )
 
 
