@@ -10,6 +10,12 @@ from app.core.deps import OrgContext, require_csrf_header, require_roles
 from app.db.session import get_session
 from app.models.enums import MembershipRole, TicketStatus
 from app.schemas.tickets import (
+    RecipientAllowlistCreateRequest,
+    RecipientAllowlistOut,
+    RecipientAllowlistUpdateRequest,
+    RoutingRuleCreateRequest,
+    RoutingRuleOut,
+    RoutingRuleUpdateRequest,
     RoutingSimulationAppliedActions,
     RoutingSimulationMatchedRule,
     RoutingSimulationRequest,
@@ -29,6 +35,16 @@ from app.schemas.tickets import (
 from app.services.routing_simulator import simulate_routing
 from app.services.ticket_commands import create_ticket_note, update_ticket
 from app.services.ticket_outbound import list_send_identities, queue_ticket_reply
+from app.services.ticket_routing_admin import (
+    create_allowlist_entry,
+    create_routing_rule,
+    delete_allowlist_entry,
+    delete_routing_rule,
+    list_allowlist,
+    list_routing_rules,
+    update_allowlist_entry,
+    update_routing_rule,
+)
 from app.services.ticket_saved_views import create_saved_view, delete_saved_view, list_saved_views
 from app.services.ticket_views import (
     get_ticket_attachment_download,
@@ -146,6 +162,133 @@ def ticket_routing_simulate(
         applied_actions=RoutingSimulationAppliedActions(**simulated.applied_actions),
         explanation=simulated.explanation,
     )
+
+
+@router.get("/routing/allowlist", response_model=list[RecipientAllowlistOut])
+def routing_allowlist_list(
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> list[RecipientAllowlistOut]:
+    rows = list_allowlist(session=session, organization_id=org.organization.id)
+    return [RecipientAllowlistOut(**row) for row in rows]
+
+
+@router.post(
+    "/routing/allowlist",
+    response_model=RecipientAllowlistOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def routing_allowlist_create(
+    payload: RecipientAllowlistCreateRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> RecipientAllowlistOut:
+    row = create_allowlist_entry(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        pattern=payload.pattern,
+        is_enabled=payload.is_enabled,
+    )
+    session.commit()
+    return RecipientAllowlistOut(**row)
+
+
+@router.patch("/routing/allowlist/{allowlist_id}", response_model=RecipientAllowlistOut)
+def routing_allowlist_update(
+    allowlist_id: UUID,
+    payload: RecipientAllowlistUpdateRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> RecipientAllowlistOut:
+    row = update_allowlist_entry(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        allowlist_id=allowlist_id,
+        updates=payload.model_dump(exclude_unset=True),
+    )
+    session.commit()
+    return RecipientAllowlistOut(**row)
+
+
+@router.delete("/routing/allowlist/{allowlist_id}", status_code=status.HTTP_204_NO_CONTENT)
+def routing_allowlist_delete(
+    allowlist_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> None:
+    delete_allowlist_entry(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        allowlist_id=allowlist_id,
+    )
+    session.commit()
+    return None
+
+
+@router.get("/routing/rules", response_model=list[RoutingRuleOut])
+def routing_rules_list(
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> list[RoutingRuleOut]:
+    rows = list_routing_rules(session=session, organization_id=org.organization.id)
+    return [RoutingRuleOut(**row) for row in rows]
+
+
+@router.post(
+    "/routing/rules",
+    response_model=RoutingRuleOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def routing_rules_create(
+    payload: RoutingRuleCreateRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> RoutingRuleOut:
+    row = create_routing_rule(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
+    session.commit()
+    return RoutingRuleOut(**row)
+
+
+@router.patch("/routing/rules/{rule_id}", response_model=RoutingRuleOut)
+def routing_rules_update(
+    rule_id: UUID,
+    payload: RoutingRuleUpdateRequest,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> RoutingRuleOut:
+    row = update_routing_rule(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        rule_id=rule_id,
+        updates=payload.model_dump(exclude_unset=True),
+    )
+    session.commit()
+    return RoutingRuleOut(**row)
+
+
+@router.delete("/routing/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def routing_rules_delete(
+    rule_id: UUID,
+    org: OrgContext = Depends(require_roles([MembershipRole.admin])),
+    session: Session = Depends(get_session),
+) -> None:
+    delete_routing_rule(
+        session=session,
+        organization_id=org.organization.id,
+        actor_user_id=org.user.id,
+        rule_id=rule_id,
+    )
+    session.commit()
+    return None
 
 
 @router.get("/{ticket_id}", response_model=TicketDetailResponse)

@@ -99,6 +99,38 @@ type RoutingSimulationResponse = {
   explanation: string
 }
 
+type RecipientAllowlistOut = {
+  id: string
+  pattern: string
+  is_enabled: boolean
+  created_at: string
+}
+
+type RoutingRuleOut = {
+  id: string
+  name: string
+  is_enabled: boolean
+  priority: number
+  match_recipient_pattern: string | null
+  match_sender_domain_pattern: string | null
+  match_sender_email_pattern: string | null
+  match_direction: string | null
+  action_assign_queue_id: string | null
+  action_assign_user_id: string | null
+  action_set_status: string | null
+  action_drop: boolean
+  action_auto_close: boolean
+  created_at: string
+  updated_at: string
+}
+
+type QueueOut = {
+  id: string
+  name: string
+  slug: string
+  created_at: string
+}
+
 type SyncAction = "backfill" | "history" | "pause" | "resume"
 
 function formatDate(value: string | null): string {
@@ -143,6 +175,12 @@ function actionLabel(action: SyncAction): string {
   }
 }
 
+function parsePriority(value: string, fallback = 100): number {
+  const parsed = Number.parseInt(value.trim(), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(0, Math.min(10_000, parsed))
+}
+
 export function OpsDlqClient() {
   const qc = useQueryClient()
   const [dlqLimit, setDlqLimit] = useState(50)
@@ -159,6 +197,24 @@ export function OpsDlqClient() {
   const [direction, setDirection] = useState("inbound")
   const [simulationError, setSimulationError] = useState<string | null>(null)
   const [simulationResult, setSimulationResult] = useState<RoutingSimulationResponse | null>(null)
+  const [allowlistPattern, setAllowlistPattern] = useState("")
+  const [allowlistError, setAllowlistError] = useState<string | null>(null)
+  const [allowlistDraftById, setAllowlistDraftById] = useState<Record<string, string>>({})
+  const [ruleError, setRuleError] = useState<string | null>(null)
+  const [newRuleName, setNewRuleName] = useState("")
+  const [newRulePriority, setNewRulePriority] = useState("100")
+  const [newRuleRecipientPattern, setNewRuleRecipientPattern] = useState("")
+  const [newRuleSenderDomainPattern, setNewRuleSenderDomainPattern] = useState("")
+  const [newRuleSenderEmailPattern, setNewRuleSenderEmailPattern] = useState("")
+  const [newRuleDirection, setNewRuleDirection] = useState("")
+  const [newRuleAssignQueueId, setNewRuleAssignQueueId] = useState("")
+  const [newRuleAssignUserId, setNewRuleAssignUserId] = useState("")
+  const [newRuleSetStatus, setNewRuleSetStatus] = useState("")
+  const [newRuleDrop, setNewRuleDrop] = useState(false)
+  const [newRuleAutoClose, setNewRuleAutoClose] = useState(false)
+  const [newRuleEnabled, setNewRuleEnabled] = useState(true)
+  const [ruleNameDraftById, setRuleNameDraftById] = useState<Record<string, string>>({})
+  const [rulePriorityDraftById, setRulePriorityDraftById] = useState<Record<string, string>>({})
 
   const me = useQuery({
     queryKey: ["me"],
@@ -201,6 +257,29 @@ export function OpsDlqClient() {
     queryKey: ["ops-metrics"],
     queryFn: async (): Promise<OpsMetricsOverviewResponse> =>
       apiFetchJson<OpsMetricsOverviewResponse>("/ops/metrics/overview"),
+    enabled: isAdmin,
+    retry: false
+  })
+
+  const routingAllowlist = useQuery({
+    queryKey: ["routing-allowlist"],
+    queryFn: async (): Promise<RecipientAllowlistOut[]> =>
+      apiFetchJson<RecipientAllowlistOut[]>("/tickets/routing/allowlist"),
+    enabled: isAdmin,
+    retry: false
+  })
+
+  const routingRules = useQuery({
+    queryKey: ["routing-rules"],
+    queryFn: async (): Promise<RoutingRuleOut[]> =>
+      apiFetchJson<RoutingRuleOut[]>("/tickets/routing/rules"),
+    enabled: isAdmin,
+    retry: false
+  })
+
+  const queues = useQuery({
+    queryKey: ["queues"],
+    queryFn: async (): Promise<QueueOut[]> => apiFetchJson<QueueOut[]>("/queues"),
     enabled: isAdmin,
     retry: false
   })
@@ -290,6 +369,143 @@ export function OpsDlqClient() {
     onError: (error) => {
       if (error instanceof ApiError) setSimulationError(error.detail)
       else setSimulationError("Failed to simulate routing")
+    }
+  })
+
+  const createAllowlist = useMutation({
+    mutationFn: async (pattern: string): Promise<RecipientAllowlistOut> => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson<RecipientAllowlistOut>("/tickets/routing/allowlist", {
+        method: "POST",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify({ pattern, is_enabled: true })
+      })
+    },
+    onSuccess: async () => {
+      setAllowlistError(null)
+      setAllowlistPattern("")
+      await qc.invalidateQueries({ queryKey: ["routing-allowlist"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setAllowlistError(error.detail)
+      else setAllowlistError("Failed to create allowlist entry")
+    }
+  })
+
+  const updateAllowlist = useMutation({
+    mutationFn: async ({
+      id,
+      payload
+    }: {
+      id: string
+      payload: { pattern?: string; is_enabled?: boolean }
+    }): Promise<RecipientAllowlistOut> => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson<RecipientAllowlistOut>(`/tickets/routing/allowlist/${id}`, {
+        method: "PATCH",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify(payload)
+      })
+    },
+    onSuccess: async () => {
+      setAllowlistError(null)
+      await qc.invalidateQueries({ queryKey: ["routing-allowlist"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setAllowlistError(error.detail)
+      else setAllowlistError("Failed to update allowlist entry")
+    }
+  })
+
+  const deleteAllowlist = useMutation({
+    mutationFn: async (id: string): Promise<void> => {
+      const csrf = await fetchCsrfToken()
+      await apiFetchJson<void>(`/tickets/routing/allowlist/${id}`, {
+        method: "DELETE",
+        headers: { "x-csrf-token": csrf }
+      })
+    },
+    onSuccess: async () => {
+      setAllowlistError(null)
+      await qc.invalidateQueries({ queryKey: ["routing-allowlist"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setAllowlistError(error.detail)
+      else setAllowlistError("Failed to delete allowlist entry")
+    }
+  })
+
+  const createRoutingRule = useMutation({
+    mutationFn: async (payload: Record<string, unknown>): Promise<RoutingRuleOut> => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson<RoutingRuleOut>("/tickets/routing/rules", {
+        method: "POST",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify(payload)
+      })
+    },
+    onSuccess: async () => {
+      setRuleError(null)
+      setNewRuleName("")
+      setNewRulePriority("100")
+      setNewRuleRecipientPattern("")
+      setNewRuleSenderDomainPattern("")
+      setNewRuleSenderEmailPattern("")
+      setNewRuleDirection("")
+      setNewRuleAssignQueueId("")
+      setNewRuleAssignUserId("")
+      setNewRuleSetStatus("")
+      setNewRuleDrop(false)
+      setNewRuleAutoClose(false)
+      setNewRuleEnabled(true)
+      await qc.invalidateQueries({ queryKey: ["routing-rules"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setRuleError(error.detail)
+      else setRuleError("Failed to create routing rule")
+    }
+  })
+
+  const updateRoutingRule = useMutation({
+    mutationFn: async ({
+      id,
+      payload
+    }: {
+      id: string
+      payload: Record<string, unknown>
+    }): Promise<RoutingRuleOut> => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson<RoutingRuleOut>(`/tickets/routing/rules/${id}`, {
+        method: "PATCH",
+        headers: { "x-csrf-token": csrf },
+        body: JSON.stringify(payload)
+      })
+    },
+    onSuccess: async () => {
+      setRuleError(null)
+      await qc.invalidateQueries({ queryKey: ["routing-rules"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setRuleError(error.detail)
+      else setRuleError("Failed to update routing rule")
+    }
+  })
+
+  const deleteRoutingRule = useMutation({
+    mutationFn: async (id: string): Promise<void> => {
+      const csrf = await fetchCsrfToken()
+      await apiFetchJson<void>(`/tickets/routing/rules/${id}`, {
+        method: "DELETE",
+        headers: { "x-csrf-token": csrf }
+      })
+    },
+    onSuccess: async () => {
+      setRuleError(null)
+      await qc.invalidateQueries({ queryKey: ["routing-rules"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setRuleError(error.detail)
+      else setRuleError("Failed to delete routing rule")
     }
   })
 
@@ -563,6 +779,375 @@ export function OpsDlqClient() {
               </pre>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recipient Allowlist</CardTitle>
+          <CardDescription>
+            Admin CRUD for allowlisted recipient patterns used by routing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <form
+            className="grid gap-2 md:grid-cols-[1fr_auto]"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const pattern = allowlistPattern.trim().toLowerCase()
+              if (!pattern) {
+                setAllowlistError("Pattern is required")
+                return
+              }
+              createAllowlist.mutate(pattern)
+            }}
+          >
+            <Input
+              value={allowlistPattern}
+              onChange={(event) => setAllowlistPattern(event.target.value)}
+              placeholder="Pattern (ex: support@example.com or *@example.com)"
+            />
+            <Button type="submit" disabled={createAllowlist.isPending}>
+              {createAllowlist.isPending ? (
+                <>
+                  <Spinner /> Adding…
+                </>
+              ) : (
+                "Add pattern"
+              )}
+            </Button>
+          </form>
+          {allowlistError ? <div className="text-sm text-red-700">{allowlistError}</div> : null}
+
+          {routingAllowlist.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-neutral-700">
+              <Spinner /> Loading allowlist…
+            </div>
+          ) : null}
+
+          {routingAllowlist.isError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {routingAllowlist.error instanceof ApiError
+                ? routingAllowlist.error.detail
+                : "Failed to load allowlist"}
+            </div>
+          ) : null}
+
+          {!routingAllowlist.isLoading && !routingAllowlist.isError && (routingAllowlist.data ?? []).length === 0 ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
+              No allowlist entries yet.
+            </div>
+          ) : null}
+
+          {(routingAllowlist.data ?? []).map((entry) => {
+            const draftPattern = allowlistDraftById[entry.id] ?? entry.pattern
+            return (
+              <div key={entry.id} className="rounded-lg border border-neutral-200 bg-white p-3">
+                <div className="grid gap-2 md:grid-cols-[1fr_auto_auto_auto] md:items-center">
+                  <Input
+                    value={draftPattern}
+                    onChange={(event) =>
+                      setAllowlistDraftById((curr) => ({ ...curr, [entry.id]: event.target.value }))
+                    }
+                  />
+                  <Badge tone={entry.is_enabled ? "green" : "neutral"}>
+                    {entry.is_enabled ? "enabled" : "disabled"}
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={updateAllowlist.isPending}
+                    onClick={() =>
+                      updateAllowlist.mutate({
+                        id: entry.id,
+                        payload: { pattern: draftPattern.trim().toLowerCase() }
+                      })
+                    }
+                  >
+                    Save
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={updateAllowlist.isPending}
+                      onClick={() =>
+                        updateAllowlist.mutate({
+                          id: entry.id,
+                          payload: { is_enabled: !entry.is_enabled }
+                        })
+                      }
+                    >
+                      {entry.is_enabled ? "Disable" : "Enable"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={deleteAllowlist.isPending}
+                      onClick={() => deleteAllowlist.mutate(entry.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">Created {formatDate(entry.created_at)}</div>
+              </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Routing Rules</CardTitle>
+          <CardDescription>Admin CRUD for rule order, matching, and actions.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <form
+            className="grid gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const name = newRuleName.trim()
+              if (!name) {
+                setRuleError("Rule name is required")
+                return
+              }
+              const actionAssignQueueId = newRuleAssignQueueId || null
+              const actionAssignUserId = newRuleAssignUserId.trim() || null
+              const actionSetStatus = newRuleSetStatus || null
+              const hasAction =
+                actionAssignQueueId !== null ||
+                actionAssignUserId !== null ||
+                actionSetStatus !== null ||
+                newRuleDrop ||
+                newRuleAutoClose
+              if (!hasAction) {
+                setRuleError("At least one action must be set")
+                return
+              }
+              createRoutingRule.mutate({
+                name,
+                is_enabled: newRuleEnabled,
+                priority: parsePriority(newRulePriority),
+                match_recipient_pattern: newRuleRecipientPattern.trim().toLowerCase() || null,
+                match_sender_domain_pattern: newRuleSenderDomainPattern.trim().toLowerCase() || null,
+                match_sender_email_pattern: newRuleSenderEmailPattern.trim().toLowerCase() || null,
+                match_direction: newRuleDirection || null,
+                action_assign_queue_id: actionAssignQueueId,
+                action_assign_user_id: actionAssignUserId,
+                action_set_status: actionSetStatus,
+                action_drop: newRuleDrop,
+                action_auto_close: newRuleAutoClose
+              })
+            }}
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input
+                value={newRuleName}
+                onChange={(event) => setNewRuleName(event.target.value)}
+                placeholder="Rule name"
+              />
+              <Input
+                value={newRulePriority}
+                onChange={(event) => setNewRulePriority(event.target.value)}
+                placeholder="Priority (lower runs first)"
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input
+                value={newRuleRecipientPattern}
+                onChange={(event) => setNewRuleRecipientPattern(event.target.value)}
+                placeholder="match_recipient_pattern"
+              />
+              <Input
+                value={newRuleSenderDomainPattern}
+                onChange={(event) => setNewRuleSenderDomainPattern(event.target.value)}
+                placeholder="match_sender_domain_pattern"
+              />
+              <Input
+                value={newRuleSenderEmailPattern}
+                onChange={(event) => setNewRuleSenderEmailPattern(event.target.value)}
+                placeholder="match_sender_email_pattern"
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <select
+                value={newRuleDirection}
+                onChange={(event) => setNewRuleDirection(event.target.value)}
+                className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+              >
+                <option value="">Any direction</option>
+                <option value="inbound">inbound</option>
+                <option value="outbound">outbound</option>
+              </select>
+              <select
+                value={newRuleAssignQueueId}
+                onChange={(event) => setNewRuleAssignQueueId(event.target.value)}
+                className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+              >
+                <option value="">No queue assignment</option>
+                {(queues.data ?? []).map((queue) => (
+                  <option key={queue.id} value={queue.id}>
+                    {queue.name}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={newRuleAssignUserId}
+                onChange={(event) => setNewRuleAssignUserId(event.target.value)}
+                placeholder="action_assign_user_id (optional UUID)"
+              />
+              <select
+                value={newRuleSetStatus}
+                onChange={(event) => setNewRuleSetStatus(event.target.value)}
+                className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+              >
+                <option value="">No status change</option>
+                <option value="new">new</option>
+                <option value="open">open</option>
+                <option value="pending">pending</option>
+                <option value="resolved">resolved</option>
+                <option value="closed">closed</option>
+                <option value="spam">spam</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-800">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={newRuleEnabled}
+                  onChange={(event) => setNewRuleEnabled(event.target.checked)}
+                />
+                enabled
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={newRuleDrop}
+                  onChange={(event) => setNewRuleDrop(event.target.checked)}
+                />
+                action_drop
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={newRuleAutoClose}
+                  onChange={(event) => setNewRuleAutoClose(event.target.checked)}
+                />
+                action_auto_close
+              </label>
+            </div>
+
+            <div>
+              <Button type="submit" disabled={createRoutingRule.isPending}>
+                {createRoutingRule.isPending ? (
+                  <>
+                    <Spinner /> Creating…
+                  </>
+                ) : (
+                  "Create rule"
+                )}
+              </Button>
+            </div>
+          </form>
+
+          {ruleError ? <div className="text-sm text-red-700">{ruleError}</div> : null}
+
+          {routingRules.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-neutral-700">
+              <Spinner /> Loading routing rules…
+            </div>
+          ) : null}
+
+          {routingRules.isError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {routingRules.error instanceof ApiError
+                ? routingRules.error.detail
+                : "Failed to load routing rules"}
+            </div>
+          ) : null}
+
+          {!routingRules.isLoading && !routingRules.isError && (routingRules.data ?? []).length === 0 ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
+              No routing rules configured yet.
+            </div>
+          ) : null}
+
+          {(routingRules.data ?? []).map((rule) => {
+            const draftName = ruleNameDraftById[rule.id] ?? rule.name
+            const draftPriority = rulePriorityDraftById[rule.id] ?? String(rule.priority)
+            return (
+              <div key={rule.id} className="rounded-lg border border-neutral-200 bg-white p-3">
+                <div className="grid gap-2 md:grid-cols-[1fr_180px_auto_auto] md:items-center">
+                  <Input
+                    value={draftName}
+                    onChange={(event) =>
+                      setRuleNameDraftById((curr) => ({ ...curr, [rule.id]: event.target.value }))
+                    }
+                  />
+                  <Input
+                    value={draftPriority}
+                    onChange={(event) =>
+                      setRulePriorityDraftById((curr) => ({ ...curr, [rule.id]: event.target.value }))
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={updateRoutingRule.isPending}
+                    onClick={() =>
+                      updateRoutingRule.mutate({
+                        id: rule.id,
+                        payload: {
+                          name: draftName.trim(),
+                          priority: parsePriority(draftPriority, rule.priority)
+                        }
+                      })
+                    }
+                  >
+                    Save
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={updateRoutingRule.isPending}
+                      onClick={() =>
+                        updateRoutingRule.mutate({
+                          id: rule.id,
+                          payload: { is_enabled: !rule.is_enabled }
+                        })
+                      }
+                    >
+                      {rule.is_enabled ? "Disable" : "Enable"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={deleteRoutingRule.isPending}
+                      onClick={() => deleteRoutingRule.mutate(rule.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-neutral-600">
+                  direction: {rule.match_direction ?? "any"} · recipient:{" "}
+                  {rule.match_recipient_pattern ?? "any"} · sender_domain:{" "}
+                  {rule.match_sender_domain_pattern ?? "any"} · sender_email:{" "}
+                  {rule.match_sender_email_pattern ?? "any"}
+                </div>
+                <div className="mt-1 text-xs text-neutral-600">
+                  actions: queue {rule.action_assign_queue_id ?? "none"} · user{" "}
+                  {rule.action_assign_user_id ?? "none"} · status {rule.action_set_status ?? "none"} ·
+                  drop {String(rule.action_drop)} · auto_close {String(rule.action_auto_close)}
+                </div>
+              </div>
+            )
+          })}
         </CardContent>
       </Card>
 

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import TicketPriority, TicketStatus
+from app.models.enums import MessageDirection, TicketPriority, TicketStatus
 
 
 class TicketListItem(BaseModel):
@@ -199,3 +199,72 @@ class RoutingSimulationResponse(BaseModel):
     matched_rule: RoutingSimulationMatchedRule | None
     applied_actions: RoutingSimulationAppliedActions
     explanation: str
+
+
+class RecipientAllowlistOut(BaseModel):
+    id: UUID
+    pattern: str
+    is_enabled: bool
+    created_at: datetime
+
+
+class RecipientAllowlistCreateRequest(BaseModel):
+    pattern: str = Field(min_length=3, max_length=320)
+    is_enabled: bool = True
+
+
+class RecipientAllowlistUpdateRequest(BaseModel):
+    pattern: str | None = Field(default=None, min_length=3, max_length=320)
+    is_enabled: bool | None = None
+
+
+class RoutingRuleOut(BaseModel):
+    id: UUID
+    name: str
+    is_enabled: bool
+    priority: int
+    match_recipient_pattern: str | None
+    match_sender_domain_pattern: str | None
+    match_sender_email_pattern: str | None
+    match_direction: str | None
+    action_assign_queue_id: UUID | None
+    action_assign_user_id: UUID | None
+    action_set_status: str | None
+    action_drop: bool
+    action_auto_close: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class RoutingRuleCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    is_enabled: bool = True
+    priority: int = Field(default=100, ge=0, le=10_000)
+
+    match_recipient_pattern: str | None = Field(default=None, max_length=320)
+    match_sender_domain_pattern: str | None = Field(default=None, max_length=255)
+    match_sender_email_pattern: str | None = Field(default=None, max_length=320)
+    match_direction: MessageDirection | None = None
+
+    action_assign_queue_id: UUID | None = None
+    action_assign_user_id: UUID | None = None
+    action_set_status: TicketStatus | None = None
+    action_drop: bool = False
+    action_auto_close: bool = False
+
+
+class RoutingRuleUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    is_enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10_000)
+
+    match_recipient_pattern: str | None = Field(default=None, max_length=320)
+    match_sender_domain_pattern: str | None = Field(default=None, max_length=255)
+    match_sender_email_pattern: str | None = Field(default=None, max_length=320)
+    match_direction: MessageDirection | None = None
+
+    action_assign_queue_id: UUID | None = None
+    action_assign_user_id: UUID | None = None
+    action_set_status: TicketStatus | None = None
+    action_drop: bool | None = None
+    action_auto_close: bool | None = None
