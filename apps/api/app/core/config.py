@@ -47,6 +47,8 @@ class Settings(BaseSettings):
 
     REQUEST_ID_HEADER: str = "x-request-id"
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 120
+    ENABLE_PROMETHEUS_METRICS: bool = True
+    PROMETHEUS_METRICS_PATH: str = "/metrics"
     CONTENT_SECURITY_POLICY: str = (
         "default-src 'self'; "
         "img-src 'self' data: cid:; "

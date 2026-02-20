@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import make_asgi_app
 
 from app.core.config import get_settings
+from app.core.metrics import observe_http_request
 from app.core.middleware import (
     RateLimiter,
     apply_security_headers,
@@ -40,6 +42,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    if settings.ENABLE_PROMETHEUS_METRICS:
+        app.mount(settings.PROMETHEUS_METRICS_PATH, make_asgi_app())
 
     @app.middleware("http")
     async def add_security_headers_and_request_context(request, call_next):  # type: ignore[no-untyped-def]
@@ -68,6 +72,15 @@ def create_app() -> FastAPI:
             return response
         finally:
             duration_ms = int((now_ts() - start_ts) * 1000)
+            route = request.scope.get("route")
+            path_label = getattr(route, "path", path) if route is not None else path
+            observe_http_request(
+                method=method,
+                path=path_label,
+                status_code=status_code,
+                duration_ms=duration_ms,
+                rate_limited=blocked,
+            )
             log_request_completion(
                 request_id=request_id,
                 method=method,
