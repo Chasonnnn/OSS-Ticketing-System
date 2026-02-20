@@ -76,6 +76,12 @@ type OpsCollisionGroupsResponse = {
   items: OpsCollisionGroupItem[]
 }
 
+type OpsCollisionBackfillResponse = {
+  fingerprints_scanned: number
+  groups_updated: number
+  messages_updated: number
+}
+
 type OpsMetricsOverviewResponse = {
   queued_jobs: number
   running_jobs: number
@@ -133,6 +139,21 @@ type QueueOut = {
 
 type SyncAction = "backfill" | "history" | "pause" | "resume"
 
+type RoutingRuleDraft = {
+  name: string
+  is_enabled: boolean
+  priority: string
+  match_recipient_pattern: string
+  match_sender_domain_pattern: string
+  match_sender_email_pattern: string
+  match_direction: string
+  action_assign_queue_id: string
+  action_assign_user_id: string
+  action_set_status: string
+  action_drop: boolean
+  action_auto_close: boolean
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "n/a"
   const dt = new Date(value)
@@ -181,6 +202,64 @@ function parsePriority(value: string, fallback = 100): number {
   return Math.max(0, Math.min(10_000, parsed))
 }
 
+function toRuleDraft(rule: RoutingRuleOut): RoutingRuleDraft {
+  return {
+    name: rule.name,
+    is_enabled: rule.is_enabled,
+    priority: String(rule.priority),
+    match_recipient_pattern: rule.match_recipient_pattern ?? "",
+    match_sender_domain_pattern: rule.match_sender_domain_pattern ?? "",
+    match_sender_email_pattern: rule.match_sender_email_pattern ?? "",
+    match_direction: rule.match_direction ?? "",
+    action_assign_queue_id: rule.action_assign_queue_id ?? "",
+    action_assign_user_id: rule.action_assign_user_id ?? "",
+    action_set_status: rule.action_set_status ?? "",
+    action_drop: rule.action_drop,
+    action_auto_close: rule.action_auto_close
+  }
+}
+
+function buildRulePayloadFromDraft(
+  draft: RoutingRuleDraft,
+  fallbackPriority: number
+): { error: string | null; payload: Record<string, unknown> | null } {
+  const name = draft.name.trim()
+  if (!name) {
+    return { error: "Rule name is required", payload: null }
+  }
+
+  const actionAssignQueueId = draft.action_assign_queue_id || null
+  const actionAssignUserId = draft.action_assign_user_id.trim() || null
+  const actionSetStatus = draft.action_set_status || null
+  const hasAction =
+    actionAssignQueueId !== null ||
+    actionAssignUserId !== null ||
+    actionSetStatus !== null ||
+    draft.action_drop ||
+    draft.action_auto_close
+  if (!hasAction) {
+    return { error: "At least one action must be set", payload: null }
+  }
+
+  return {
+    error: null,
+    payload: {
+      name,
+      is_enabled: draft.is_enabled,
+      priority: parsePriority(draft.priority, fallbackPriority),
+      match_recipient_pattern: draft.match_recipient_pattern.trim().toLowerCase() || null,
+      match_sender_domain_pattern: draft.match_sender_domain_pattern.trim().toLowerCase() || null,
+      match_sender_email_pattern: draft.match_sender_email_pattern.trim().toLowerCase() || null,
+      match_direction: draft.match_direction || null,
+      action_assign_queue_id: actionAssignQueueId,
+      action_assign_user_id: actionAssignUserId,
+      action_set_status: actionSetStatus,
+      action_drop: draft.action_drop,
+      action_auto_close: draft.action_auto_close
+    }
+  }
+}
+
 export function OpsDlqClient() {
   const qc = useQueryClient()
   const [dlqLimit, setDlqLimit] = useState(50)
@@ -191,6 +270,10 @@ export function OpsDlqClient() {
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncBusyMailboxId, setSyncBusyMailboxId] = useState<string | null>(null)
   const [syncBusyAction, setSyncBusyAction] = useState<SyncAction | null>(null)
+  const [collisionBackfillError, setCollisionBackfillError] = useState<string | null>(null)
+  const [collisionBackfillResult, setCollisionBackfillResult] = useState<OpsCollisionBackfillResponse | null>(
+    null
+  )
 
   const [recipient, setRecipient] = useState("")
   const [senderEmail, setSenderEmail] = useState("")
@@ -213,8 +296,8 @@ export function OpsDlqClient() {
   const [newRuleDrop, setNewRuleDrop] = useState(false)
   const [newRuleAutoClose, setNewRuleAutoClose] = useState(false)
   const [newRuleEnabled, setNewRuleEnabled] = useState(true)
-  const [ruleNameDraftById, setRuleNameDraftById] = useState<Record<string, string>>({})
-  const [rulePriorityDraftById, setRulePriorityDraftById] = useState<Record<string, string>>({})
+  const [ruleDraftById, setRuleDraftById] = useState<Record<string, RoutingRuleDraft>>({})
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
 
   const me = useQuery({
     queryKey: ["me"],
@@ -342,6 +425,25 @@ export function OpsDlqClient() {
     onSettled: () => {
       setSyncBusyMailboxId(null)
       setSyncBusyAction(null)
+    }
+  })
+
+  const backfillCollisions = useMutation({
+    mutationFn: async (): Promise<OpsCollisionBackfillResponse> => {
+      const csrf = await fetchCsrfToken()
+      return apiFetchJson<OpsCollisionBackfillResponse>("/ops/messages/collisions/backfill", {
+        method: "POST",
+        headers: { "x-csrf-token": csrf }
+      })
+    },
+    onSuccess: async (result) => {
+      setCollisionBackfillError(null)
+      setCollisionBackfillResult(result)
+      await qc.invalidateQueries({ queryKey: ["ops-collisions"] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) setCollisionBackfillError(error.detail)
+      else setCollisionBackfillError("Failed to backfill collision groups")
     }
   })
 
@@ -1077,40 +1179,280 @@ export function OpsDlqClient() {
           ) : null}
 
           {(routingRules.data ?? []).map((rule) => {
-            const draftName = ruleNameDraftById[rule.id] ?? rule.name
-            const draftPriority = rulePriorityDraftById[rule.id] ?? String(rule.priority)
+            const draft = ruleDraftById[rule.id] ?? toRuleDraft(rule)
+            const isEditing = editingRuleId === rule.id
             return (
               <div key={rule.id} className="rounded-lg border border-neutral-200 bg-white p-3">
-                <div className="grid gap-2 md:grid-cols-[1fr_180px_auto_auto] md:items-center">
-                  <Input
-                    value={draftName}
-                    onChange={(event) =>
-                      setRuleNameDraftById((curr) => ({ ...curr, [rule.id]: event.target.value }))
-                    }
-                  />
-                  <Input
-                    value={draftPriority}
-                    onChange={(event) =>
-                      setRulePriorityDraftById((curr) => ({ ...curr, [rule.id]: event.target.value }))
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={updateRoutingRule.isPending}
-                    onClick={() =>
-                      updateRoutingRule.mutate({
-                        id: rule.id,
-                        payload: {
-                          name: draftName.trim(),
-                          priority: parsePriority(draftPriority, rule.priority)
-                        }
-                      })
-                    }
-                  >
-                    Save
-                  </Button>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-neutral-900">{rule.name}</div>
+                    <div className="mt-1 text-xs text-neutral-600">
+                      direction: {rule.match_direction ?? "any"} · recipient:{" "}
+                      {rule.match_recipient_pattern ?? "any"} · sender_domain:{" "}
+                      {rule.match_sender_domain_pattern ?? "any"} · sender_email:{" "}
+                      {rule.match_sender_email_pattern ?? "any"}
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-600">
+                      actions: queue {rule.action_assign_queue_id ?? "none"} · user{" "}
+                      {rule.action_assign_user_id ?? "none"} · status {rule.action_set_status ?? "none"} ·
+                      drop {String(rule.action_drop)} · auto_close {String(rule.action_auto_close)}
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
+                    <Badge tone={rule.is_enabled ? "green" : "neutral"}>
+                      {rule.is_enabled ? "enabled" : "disabled"}
+                    </Badge>
+                    <Badge tone="neutral">priority {rule.priority}</Badge>
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <form
+                    className="mt-3 grid gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      const normalized = buildRulePayloadFromDraft(draft, rule.priority)
+                      if (!normalized.payload) {
+                        setRuleError(normalized.error ?? "Invalid routing rule")
+                        return
+                      }
+                      updateRoutingRule.mutate(
+                        {
+                          id: rule.id,
+                          payload: normalized.payload
+                        },
+                        {
+                          onSuccess: () => {
+                            setEditingRuleId((current) => (current === rule.id ? null : current))
+                            setRuleDraftById((curr) => {
+                              const next = { ...curr }
+                              delete next[rule.id]
+                              return next
+                            })
+                          }
+                        }
+                      )
+                    }}
+                  >
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        value={draft.name}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: { ...draft, name: event.target.value }
+                          }))
+                        }
+                        placeholder="Rule name"
+                      />
+                      <Input
+                        value={draft.priority}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: { ...draft, priority: event.target.value }
+                          }))
+                        }
+                        placeholder="Priority (lower runs first)"
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Input
+                        value={draft.match_recipient_pattern}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: {
+                              ...draft,
+                              match_recipient_pattern: event.target.value
+                            }
+                          }))
+                        }
+                        placeholder="match_recipient_pattern"
+                      />
+                      <Input
+                        value={draft.match_sender_domain_pattern}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: {
+                              ...draft,
+                              match_sender_domain_pattern: event.target.value
+                            }
+                          }))
+                        }
+                        placeholder="match_sender_domain_pattern"
+                      />
+                      <Input
+                        value={draft.match_sender_email_pattern}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: {
+                              ...draft,
+                              match_sender_email_pattern: event.target.value
+                            }
+                          }))
+                        }
+                        placeholder="match_sender_email_pattern"
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <select
+                        value={draft.match_direction}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: { ...draft, match_direction: event.target.value }
+                          }))
+                        }
+                        className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+                      >
+                        <option value="">Any direction</option>
+                        <option value="inbound">inbound</option>
+                        <option value="outbound">outbound</option>
+                      </select>
+                      <select
+                        value={draft.action_assign_queue_id}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: { ...draft, action_assign_queue_id: event.target.value }
+                          }))
+                        }
+                        className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+                      >
+                        <option value="">No queue assignment</option>
+                        {(queues.data ?? []).map((queue) => (
+                          <option key={queue.id} value={queue.id}>
+                            {queue.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        value={draft.action_assign_user_id}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: { ...draft, action_assign_user_id: event.target.value }
+                          }))
+                        }
+                        placeholder="action_assign_user_id (optional UUID)"
+                      />
+                      <select
+                        value={draft.action_set_status}
+                        onChange={(event) =>
+                          setRuleDraftById((curr) => ({
+                            ...curr,
+                            [rule.id]: { ...draft, action_set_status: event.target.value }
+                          }))
+                        }
+                        className="h-10 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none ring-neutral-900/20 transition focus:ring-2"
+                      >
+                        <option value="">No status change</option>
+                        <option value="new">new</option>
+                        <option value="open">open</option>
+                        <option value="pending">pending</option>
+                        <option value="resolved">resolved</option>
+                        <option value="closed">closed</option>
+                        <option value="spam">spam</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-800">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={draft.is_enabled}
+                          onChange={(event) =>
+                            setRuleDraftById((curr) => ({
+                              ...curr,
+                              [rule.id]: { ...draft, is_enabled: event.target.checked }
+                            }))
+                          }
+                        />
+                        enabled
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={draft.action_drop}
+                          onChange={(event) =>
+                            setRuleDraftById((curr) => ({
+                              ...curr,
+                              [rule.id]: { ...draft, action_drop: event.target.checked }
+                            }))
+                          }
+                        />
+                        action_drop
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={draft.action_auto_close}
+                          onChange={(event) =>
+                            setRuleDraftById((curr) => ({
+                              ...curr,
+                              [rule.id]: { ...draft, action_auto_close: event.target.checked }
+                            }))
+                          }
+                        />
+                        action_auto_close
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="submit" disabled={updateRoutingRule.isPending}>
+                        {updateRoutingRule.isPending ? (
+                          <>
+                            <Spinner /> Saving…
+                          </>
+                        ) : (
+                          "Save rule"
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setEditingRuleId((current) => (current === rule.id ? null : current))
+                          setRuleDraftById((curr) => {
+                            const next = { ...curr }
+                            delete next[rule.id]
+                            return next
+                          })
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        disabled={deleteRoutingRule.isPending}
+                        onClick={() => deleteRoutingRule.mutate(rule.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setRuleError(null)
+                        setRuleDraftById((curr) => ({
+                          ...curr,
+                          [rule.id]: curr[rule.id] ?? toRuleDraft(rule)
+                        }))
+                        setEditingRuleId(rule.id)
+                      }}
+                    >
+                      Edit
+                    </Button>
                     <Button
                       type="button"
                       variant="secondary"
@@ -1133,18 +1475,7 @@ export function OpsDlqClient() {
                       Delete
                     </Button>
                   </div>
-                </div>
-                <div className="mt-2 text-xs text-neutral-600">
-                  direction: {rule.match_direction ?? "any"} · recipient:{" "}
-                  {rule.match_recipient_pattern ?? "any"} · sender_domain:{" "}
-                  {rule.match_sender_domain_pattern ?? "any"} · sender_email:{" "}
-                  {rule.match_sender_email_pattern ?? "any"}
-                </div>
-                <div className="mt-1 text-xs text-neutral-600">
-                  actions: queue {rule.action_assign_queue_id ?? "none"} · user{" "}
-                  {rule.action_assign_user_id ?? "none"} · status {rule.action_set_status ?? "none"} ·
-                  drop {String(rule.action_drop)} · auto_close {String(rule.action_auto_close)}
-                </div>
+                )}
               </div>
             )
           })}
@@ -1180,7 +1511,29 @@ export function OpsDlqClient() {
                 "Refresh"
               )}
             </Button>
+            <Button
+              type="button"
+              onClick={() => backfillCollisions.mutate()}
+              disabled={backfillCollisions.isPending}
+            >
+              {backfillCollisions.isPending ? (
+                <>
+                  <Spinner /> Backfilling…
+                </>
+              ) : (
+                "Backfill Missing Groups"
+              )}
+            </Button>
           </div>
+
+          {collisionBackfillError ? <div className="text-sm text-red-700">{collisionBackfillError}</div> : null}
+          {collisionBackfillResult ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700">
+              scanned {collisionBackfillResult.fingerprints_scanned} fingerprints · updated{" "}
+              {collisionBackfillResult.groups_updated} groups · patched{" "}
+              {collisionBackfillResult.messages_updated} messages
+            </div>
+          ) : null}
 
           {collisions.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-neutral-700">
